@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # Frontend - React + Vite (served by Nginx)
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: home-smart-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - home-smart-network
+
+  # ============================================
+  # Backend - Node.js + Express
+  # ============================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: home-smart-backend
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    environment:
+      - PORT=4000
+      - NODE_ENV=production
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - MQTT_BROKER_URL=mqtt://mosquitto:1883
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_TOPIC_PREFIX=${MQTT_TOPIC_PREFIX:-home-smart}
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+    networks:
+      - home-smart-network
+
+  # ============================================
+  # MQTT Broker - Eclipse Mosquitto
+  # ============================================
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: home-smart-mosquitto
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+      - "${MQTT_WS_PORT:-9001}:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    restart: unless-stopped
+    networks:
+      - home-smart-network
+
+networks:
+  home-smart-network:
+    driver: bridge
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:
