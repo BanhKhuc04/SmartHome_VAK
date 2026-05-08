@@ -1,106 +1,110 @@
 import { getDatabase } from '../../services/database.service';
-import { wsService } from '../../services/websocket.service';
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+type AlertCondition = 'gt' | 'lt' | 'eq' | 'gte' | 'lte';
 
-interface AlertRule {
-    id: number; name: string; device_id: string; sensor_id: string;
-    condition: string; threshold: number; channel: string;
-    enabled: number; last_triggered: string | null; cooldown_minutes: number;
+interface AlertRuleRow {
+    id: number;
+    name: string;
+    device_id: string;
+    sensor_id: string;
+    condition: AlertCondition;
+    threshold: number;
+    channel: 'telegram' | 'email';
+    enabled: number;
+    last_triggered: string | null;
+    cooldown_minutes: number;
 }
 
-export function createNotification(type: 'info' | 'warning' | 'danger' | 'success', title: string, message: string): void {
-    const db = getDatabase();
-    try {
-        const result = db.prepare(
-            'INSERT INTO notifications (type, title, message) VALUES (?, ?, ?)'
-        ).run(type, title, message);
-
-        // Broadcast to all clients
-        wsService.broadcast('notification', {
-            id: result.lastInsertRowid,
-            type,
-            title,
-            message,
-            status: 'unread',
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        console.error('[NotificationService] Failed to save notification:', error);
+function matchesCondition(value: number, threshold: number, condition: AlertCondition): boolean {
+    switch (condition) {
+        case 'gt':
+            return value > threshold;
+        case 'lt':
+            return value < threshold;
+        case 'eq':
+            return value === threshold;
+        case 'gte':
+            return value >= threshold;
+        case 'lte':
+            return value <= threshold;
+        default:
+            return false;
     }
+}
+
+function isCoolingDown(lastTriggered: string | null, cooldownMinutes: number): boolean {
+    if (!lastTriggered) return false;
+
+    const lastTriggeredAt = new Date(lastTriggered).getTime();
+    if (Number.isNaN(lastTriggeredAt)) return false;
+
+    const cooldownMs = Math.max(cooldownMinutes, 0) * 60 * 1000;
+    return Date.now() - lastTriggeredAt < cooldownMs;
+}
+
+function mapNotificationType(condition: AlertCondition): 'info' | 'warning' | 'danger' {
+    if (condition === 'lt' || condition === 'lte') {
+        return 'warning';
+    }
+
+    return 'danger';
 }
 
 export function checkAlertRules(deviceId: string, sensorId: string, value: number): void {
     const db = getDatabase();
-    const rules = db.prepare(
-        'SELECT * FROM alert_rules WHERE device_id = ? AND sensor_id = ? AND enabled = 1'
-    ).all(deviceId, sensorId) as AlertRule[];
+
+    const rules = db.prepare(`
+        SELECT id, name, device_id, sensor_id, condition, threshold, channel, enabled, last_triggered, cooldown_minutes
+        FROM alert_rules
+        WHERE device_id = ? AND sensor_id = ? AND enabled = 1
+    `).all(deviceId, sensorId) as AlertRuleRow[];
+
+    if (rules.length === 0) return;
+
+    const insertNotification = db.prepare(`
+        INSERT INTO notifications (type, title, message, status)
+        VALUES (?, ?, ?, 'unread')
+    `);
+
+    const updateRule = db.prepare(`
+        UPDATE alert_rules
+        SET last_triggered = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `);
+
+    const getDeviceAndSensor = db.prepare(`
+        SELECT d.name AS device_name, s.name AS sensor_name, s.unit AS sensor_unit
+        FROM devices d
+        LEFT JOIN sensors s ON s.device_id = d.id AND s.id = ?
+        WHERE d.id = ?
+    `);
+
+    const metadata = getDeviceAndSensor.get(sensorId, deviceId) as
+        | { device_name?: string; sensor_name?: string; sensor_unit?: string }
+        | undefined;
 
     for (const rule of rules) {
-        if (isTriggered(rule, value)) {
-            // Check cooldown
-            if (rule.last_triggered) {
-                const lastTriggered = new Date(rule.last_triggered).getTime();
-                const cooldownMs = rule.cooldown_minutes * 60000;
-                if (Date.now() - lastTriggered < cooldownMs) continue;
-            }
-
-            triggerAlert(rule, value);
+        if (!matchesCondition(value, rule.threshold, rule.condition)) {
+            continue;
         }
-    }
-}
 
-function isTriggered(rule: AlertRule, value: number): boolean {
-    switch (rule.condition) {
-        case 'gt': return value > rule.threshold;
-        case 'lt': return value < rule.threshold;
-        case 'gte': return value >= rule.threshold;
-        case 'lte': return value <= rule.threshold;
-        case 'eq': return value === rule.threshold;
-        default: return false;
-    }
-}
-
-function triggerAlert(rule: AlertRule, value: number): void {
-    const db = getDatabase();
-    const conditionText: Record<string, string> = {
-        gt: '>', lt: '<', gte: '>=', lte: '<=', eq: '=',
-    };
-
-    const message = `⚠️ Alert: ${rule.name}\nDevice: ${rule.device_id}\nSensor: ${rule.sensor_id}\nValue: ${value} ${conditionText[rule.condition]} ${rule.threshold}`;
-
-    console.log(`[Alert] ${message}`);
-
-    // Save and Broadcast
-    createNotification('danger', `Alert: ${rule.name}`, message);
-
-    // Send notification to external channels
-    if (rule.channel === 'telegram') {
-        sendTelegramNotification(message);
-    }
-}
-
-async function sendTelegramNotification(message: string): Promise<void> {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-        console.log('[Telegram] Bot not configured, skipping notification');
-        return;
-    }
-
-    try {
-        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'HTML' }),
-        });
-
-        if (!response.ok) {
-            console.error('[Telegram] Send failed:', response.statusText);
-        } else {
-            console.log('[Telegram] Notification sent');
+        if (isCoolingDown(rule.last_triggered, rule.cooldown_minutes)) {
+            continue;
         }
-    } catch (error) {
-        console.error('[Telegram] Error:', error);
+
+        const sensorLabel = metadata?.sensor_name || sensorId;
+        const deviceLabel = metadata?.device_name || deviceId;
+        const unit = metadata?.sensor_unit || '';
+        const formattedValue = `${value}${unit ? ` ${unit}` : ''}`;
+        const formattedThreshold = `${rule.threshold}${unit ? ` ${unit}` : ''}`;
+
+        insertNotification.run(
+            mapNotificationType(rule.condition),
+            rule.name,
+            `${sensorLabel} on ${deviceLabel} reached ${formattedValue} (rule: ${rule.condition} ${formattedThreshold}).`
+        );
+
+        updateRule.run(rule.id);
+        console.log(`[Notifications] Triggered alert rule #${rule.id} for ${deviceId}/${sensorId}`);
     }
 }
