@@ -1,136 +1,83 @@
 # HomeCore Nexus Control Center
 
-HomeCore Nexus là control center module-based chạy trên Orange Pi One để quản lý ESP8266 modules qua MQTT. Repo này giữ UI dark/glassmorphism hiện đại, nhưng domain đã được thu gọn về mô hình `device_id` thay vì smart-home nhiều phòng.
+**HomeCore Nexus** is a highly specialized, modular IoT command center designed to run 24/7 on an Orange Pi One. It acts as the central hub for managing ESP8266 hardware modules via MQTT. 
 
-## Mục tiêu triển khai
+Moving away from the traditional multi-room smart home paradigm, Nexus adopts a **Premium Cyber-Command Center** approach—focusing on raw system telemetry, strict command execution, and real-time observability in a single, immersive dark-themed dashboard.
 
-- Orange Pi One chạy backend Express + SQLite + WebSocket 24/7
-- Mosquitto chạy native tại `mqtt://127.0.0.1:1883`
-- Pi-hole chạy native tại `http://192.168.0.103/admin`
-- ESP8266 firmware giữ nguyên contract hiện tại
-  - command topic: `homelab/device/pc_relay_01/cmd`
-  - payload command: `pulse`, `on`, `off`
+---
 
-## Kiến trúc
+## 🌟 Key Features
 
-```text
-Frontend static build  ->  Nginx / file server
-                               |
-Browser  <->  Express API + WS + SQLite  <->  Mosquitto native  <->  ESP8266 modules
-                               |
-                           Pi-hole native (linked from UI)
+* **Advanced Telemetry Dashboard**: Real-time System Load, Memory Usage, and Network Services monitoring (Orange Pi Health).
+* **Module Command Center**: Execute strict `pulse`, `on`, and `off` commands with built-in frontend cooldowns to prevent hardware spam.
+* **Live Event Stream**: Real-time audit logs of system events, MQTT messages, and user actions.
+* **Dashboard Gallery (V1)**: A digital photo frame widget directly embedded in the dashboard, with customizable slide intervals.
+* **Deep Diagnostics**: Built-in backend health checks for SQLite latency, MQTT bridge connectivity, and Memory usage.
+* **Premium Cyber UI**: A custom-built, responsive glassmorphism dark mode interface utilizing Framer Motion for micro-animations.
+
+---
+
+## 🛠️ Architecture & Tech Stack
+
+### Hardware Target
+* **Host**: Orange Pi One (Armbian / Linux)
+* **Broker**: Native Mosquitto MQTT (`127.0.0.1:1883`)
+* **Network**: Native Pi-hole (`192.168.0.103`)
+* **Edge Devices**: ESP8266 NodeMCU / Wemos D1 Mini
+
+### Software Stack
+* **Frontend**: React 18 + Vite + TypeScript + TailwindCSS + Framer Motion
+* **Backend**: Node.js + Express + SQLite3
+* **Realtime**: `ws` (WebSockets) + `mqtt.js`
+
+### System Flow
+```mermaid
+graph LR
+    A[Browser / Client] <-->|HTTP / WS| B(Express Backend + SQLite)
+    B <-->|MQTT| C(Mosquitto Broker)
+    C <-->|MQTT| D[ESP8266 Modules]
 ```
 
-## MQTT contract
+---
 
-### Command
+## 🔌 MQTT Contract
 
-- Topic: `homelab/device/<device_id>/cmd`
-- Payload raw string:
-  - `pulse`
-  - `on`
-  - `off`
+The system enforces a strict topic and payload contract for all registered modules:
 
-### Backend subscriptions
+### Commands (Backend -> Module)
+* **Topic**: `homelab/device/<device_id>/cmd`
+* **Payloads**: `pulse`, `on`, `off`
 
-- `homelab/device/+/status`
-- `homelab/device/+/state`
-- `homelab/device/+/telemetry`
+### Telemetry (Module -> Backend)
+* **Status**: `homelab/device/<device_id>/status` (Payload: `online`, `offline`)
+* **State**: `homelab/device/<device_id>/state` (Payload: `ON`, `OFF`)
+* **Telemetry**: `homelab/device/<device_id>/telemetry` (Payload: JSON string with sensor data)
 
-## API chính
+---
 
-### Auth
+## 🚀 Deployment Guide (Orange Pi One)
 
-- `POST /api/auth/login`
-- `GET /api/auth/me`
+### 1. System Preparation
+Ensure Node.js LTS, Mosquitto, and Pi-hole are installed and running natively on the Pi.
 
-### Modules
-
-- `GET /api/devices`
-- `POST /api/devices`
-- `GET /api/devices/:id`
-- `PATCH /api/devices/:id`
-- `DELETE /api/devices/:id`
-- `POST /api/devices/:id/command`
-
-### Runtime
-
-- `GET /api/logs`
-- `GET /api/system/health`
-- `GET /api/automations`
-- `POST /api/automations`
-- `PATCH /api/automations/:id`
-- `DELETE /api/automations/:id`
-
-## Module seed mặc định
-
-Backend tự seed một module:
-
-- `device_id`: `pc_relay_01`
-- `name`: `PC Server Power Relay`
-- `type`: `pc-control`
-- `cmd_topic`: `homelab/device/pc_relay_01/cmd`
-- `state_topic`: `homelab/device/pc_relay_01/state`
-- `status_topic`: `homelab/device/pc_relay_01/status`
-- `telemetry_topic`: `homelab/device/pc_relay_01/telemetry`
-
-Tài khoản seed mặc định:
-
-- `admin / admin123`
-
-## Development
-
-### Backend
-
+### 2. Clone & Build
 ```bash
-cd backend
-npm install
-npm run build
-npm start
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run build
-```
-
-Nếu cần dev server cục bộ:
-
-```bash
-cd frontend
-npm run dev
-```
-
-## Deploy trên Orange Pi One
-
-### 1. Chuẩn bị hệ thống
-
-- Cài Node.js LTS
-- Đảm bảo Mosquitto native đang chạy trên `127.0.0.1:1883`
-- Đảm bảo Pi-hole native đang chạy trên `http://192.168.0.103/admin`
-
-### 2. Clone và cài dependencies
-
-```bash
-git clone <repo-url> homecore-nexus
+git clone https://github.com/BanhKhuc04/SmartHome_VAK.git homecore-nexus
 cd homecore-nexus
 
+# Build Backend
 cd backend
 npm install
 npm run build
 
+# Build Frontend
 cd ../frontend
 npm install
 npm run build
 ```
 
-### 3. Cấu hình backend
-
-Tạo hoặc chỉnh `backend/.env`:
-
+### 3. Environment Configuration
+Create `backend/.env`:
 ```env
 PORT=5000
 NODE_ENV=production
@@ -142,16 +89,8 @@ JWT_SECRET=<strong-random-secret>
 PIHOLE_URL=http://192.168.0.103/admin
 ```
 
-Nếu muốn đổi đường dẫn DB:
-
-```env
-DB_PATH=/opt/homecore-nexus/data/homecore-nexus.db
-```
-
-### 4. Chạy backend bằng systemd
-
-Tạo file `/etc/systemd/system/homecore-nexus-backend.service`:
-
+### 4. Systemd Service (Backend)
+Create `/etc/systemd/system/homecore-nexus-backend.service`:
 ```ini
 [Unit]
 Description=HomeCore Nexus Backend
@@ -170,27 +109,19 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 ```
-
-Reload và bật service:
-
+Enable and start the service:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable homecore-nexus-backend
 sudo systemctl start homecore-nexus-backend
-sudo systemctl status homecore-nexus-backend
 ```
 
-### 5. Serve frontend static
-
-Frontend build output nằm tại `frontend/dist`.
-
-Có thể dùng Nginx:
-
+### 5. Nginx Configuration (Frontend)
+Point Nginx to the `frontend/dist` directory:
 ```nginx
 server {
     listen 80;
     server_name _;
-
     root /opt/homecore-nexus/frontend/dist;
     index index.html;
 
@@ -200,20 +131,26 @@ server {
 }
 ```
 
-Nếu frontend và backend khác origin, nhớ đặt `CORS_ORIGIN` đúng với URL frontend.
+---
 
-## Notes vận hành
+## 💻 Development
 
-- Không dùng Docker Compose để chạy Mosquitto trong target Orange Pi này.
-- Backend production dùng `node dist/index.js`, không dùng `tsx`, `ts-node`, hay Vite dev server.
-- Frontend command UI luôn yêu cầu confirm trước khi publish `pulse/on/off`.
-- UI realtime qua WebSocket, nhưng source of truth vẫn là event từ backend/MQTT.
+**Default Credentials:** `admin / admin123`
 
-## Build gate
-
-Sau mỗi phase refactor cần pass:
-
+To run locally:
+1. Start local MQTT broker (e.g. using Docker: `docker run -p 1883:1883 eclipse-mosquitto`)
+2. Run backend:
 ```bash
-cd backend && npm run build
-cd frontend && npm run build
+cd backend
+npm install
+npm run dev
 ```
+3. Run frontend:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+---
+*Developed for the HomeCore Infrastructure.*
