@@ -1,18 +1,25 @@
-import mqtt, { MqttClient, IClientOptions } from 'mqtt';
+import mqtt, { IClientOptions, MqttClient } from 'mqtt';
 import { config } from '../config';
-import { MqttSensorPayload, MqttRelayPayload, MqttDeviceStatusPayload } from '../types';
+import { DeviceCommand, MqttInboundMessage } from '../types';
 
-type MessageHandler = (topic: string, payload: unknown) => void;
+type MessageHandler = (message: MqttInboundMessage) => void;
+
+function parsePayload(rawPayload: string): unknown {
+    try {
+        return JSON.parse(rawPayload);
+    } catch {
+        return rawPayload;
+    }
+}
 
 class MqttService {
     private client: MqttClient | null = null;
-    private handlers: Map<string, MessageHandler[]> = new Map();
-    private isConnected = false;
-    private reconnectCount = 0;
+    private handlers = new Map<string, MessageHandler[]>();
+    private connected = false;
 
     connect(): void {
         const options: IClientOptions = {
-            clientId: `home-smart-backend-${Date.now()}`,
+            clientId: `homecore-nexus-${Date.now()}`,
             clean: true,
             reconnectPeriod: 5000,
             connectTimeout: 30000,
@@ -23,95 +30,66 @@ class MqttService {
             options.password = config.mqtt.password;
         }
 
-        console.log(`[MQTT] Connecting to ${config.mqtt.brokerUrl}...`);
         this.client = mqtt.connect(config.mqtt.brokerUrl, options);
 
-        let hasLoggedFailure = false;
-
         this.client.on('connect', () => {
-            this.isConnected = true;
-            hasLoggedFailure = false;
-            console.log('[MQTT] ✅ Connected successfully');
-            this.subscribeToTopics();
-        });
-
-        this.client.on('error', () => {
-            if (!hasLoggedFailure) {
-                hasLoggedFailure = true;
-                console.warn('[MQTT] ⚠️ Broker unreachable — will retry silently in background');
+            this.connected = true;
+            console.log(`[MQTT] Connected to ${config.mqtt.brokerUrl}`);
+            for (const topic of config.mqtt.subscriptions) {
+                this.subscribe(topic);
             }
-            // Silent after first log
-        });
-
-        this.client.on('reconnect', () => {
-            // Silent — already logged once
         });
 
         this.client.on('close', () => {
-            this.isConnected = false;
-            // Silent — already logged once
+            this.connected = false;
         });
 
-        this.client.on('message', (topic: string, message: Buffer) => {
-            try {
-                const payload = JSON.parse(message.toString());
-                this.notifyHandlers(topic, payload);
-            } catch {
-                console.warn(`[MQTT] Invalid message on ${topic}:`, message.toString());
+        this.client.on('error', (error) => {
+            console.warn(`[MQTT] ${error.message}`);
+        });
+
+        this.client.on('message', (topic, payloadBuffer) => {
+            const rawPayload = payloadBuffer.toString();
+            const message: MqttInboundMessage = {
+                topic,
+                rawPayload,
+                parsedPayload: parsePayload(rawPayload),
+            };
+
+            for (const [pattern, handlers] of this.handlers.entries()) {
+                if (this.topicMatches(topic, pattern)) {
+                    for (const handler of handlers) {
+                        handler(message);
+                    }
+                }
             }
         });
-    }
-
-    private subscribeToTopics(): void {
-        if (!this.client) return;
-
-        const prefix = config.mqtt.topicPrefix;
-        const topics = [
-            `${prefix}/+/+/state`,     // home/{room}/{device}/state
-            `${prefix}/+/+/status`,    // home/{room}/{device}/status
-            `${prefix}/+/+/sensors/#`, // home/{room}/{device}/sensors/temp
-        ];
-
-        topics.forEach((topic) => this.subscribe(topic));
     }
 
     subscribe(topic: string): void {
         if (!this.client) return;
 
-        this.client.subscribe(topic, { qos: 1 }, (err) => {
-            if (err) {
-                console.error(`[MQTT] Failed to subscribe to ${topic}:`, err.message);
-            } else {
-                console.log(`[MQTT] Subscribed to ${topic}`);
+        this.client.subscribe(topic, { qos: 1 }, (error) => {
+            if (error) {
+                console.error(`[MQTT] Failed to subscribe ${topic}: ${error.message}`);
             }
         });
     }
 
-    publish(topic: string, payload: unknown): void {
-        if (!this.client || !this.isConnected) {
-            console.warn('[MQTT] Cannot publish - not connected');
-            return;
+    publishCommand(topic: string, command: DeviceCommand): void {
+        this.publishRaw(topic, command);
+    }
+
+    publishRaw(topic: string, payload: string): void {
+        if (!this.client || !this.connected) {
+            throw new Error('MQTT broker is not connected');
         }
 
-        const message = JSON.stringify(payload);
-        this.client.publish(topic, message, { qos: 1 }, (err) => {
-            if (err) {
-                console.error(`[MQTT] Publish error on ${topic}:`, err.message);
+        this.client.publish(topic, payload, { qos: 1 }, (error) => {
+            if (error) {
+                console.error(`[MQTT] Failed to publish ${topic}: ${error.message}`);
             }
         });
-    }
-
-    publishCommand(location: string, deviceId: string, command: string | Record<string, unknown>): void {
-        const prefix = config.mqtt.topicPrefix;
-        const topic = `${prefix}/${location}/${deviceId}/set`;
-        const payload = typeof command === 'string' ? { command } : command;
-        this.publish(topic, payload);
-    }
-
-    publishRelayCommand(location: string, deviceId: string, relayId: string, state: boolean): void {
-        const prefix = config.mqtt.topicPrefix;
-        const topic = `${prefix}/${location}/${deviceId}/${relayId}/set`;
-        this.publish(topic, { state });
     }
 
     onMessage(topicPattern: string, handler: MessageHandler): void {
@@ -120,37 +98,35 @@ class MqttService {
         this.handlers.set(topicPattern, handlers);
     }
 
-    private notifyHandlers(topic: string, payload: unknown): void {
-        this.handlers.forEach((handlers, pattern) => {
-            if (this.topicMatches(topic, pattern)) {
-                handlers.forEach((handler) => handler(topic, payload));
-            }
-        });
-    }
-
-    private topicMatches(topic: string, pattern: string): boolean {
-        const topicParts = topic.split('/');
-        const patternParts = pattern.split('/');
-
-        for (let i = 0; i < patternParts.length; i++) {
-            if (patternParts[i] === '#') return true;
-            if (patternParts[i] !== '+' && patternParts[i] !== topicParts[i]) return false;
-        }
-
-        return topicParts.length === patternParts.length;
-    }
-
     getConnectionStatus(): boolean {
-        return this.isConnected;
+        return this.connected;
+    }
+
+    getSubscriptions(): string[] {
+        return [...config.mqtt.subscriptions];
     }
 
     disconnect(): void {
         if (this.client) {
             this.client.end();
             this.client = null;
-            this.isConnected = false;
-            console.log('[MQTT] Disconnected');
+            this.connected = false;
         }
+    }
+
+    private topicMatches(topic: string, pattern: string): boolean {
+        const topicParts = topic.split('/');
+        const patternParts = pattern.split('/');
+
+        for (let index = 0; index < patternParts.length; index += 1) {
+            const patternPart = patternParts[index];
+            if (patternPart === '#') return true;
+            if (patternPart !== '+' && patternPart !== topicParts[index]) {
+                return false;
+            }
+        }
+
+        return topicParts.length === patternParts.length;
     }
 }
 

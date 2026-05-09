@@ -30,5 +30,21 @@
   },
   "include": [
     "src"
+  ],
+  "exclude": [
+    "src/features/ai-assistant/**/*",
+    "src/features/command-center/**/*",
+    "src/features/dashboard/**/*",
+    "src/features/energy/**/*",
+    "src/features/house-map/**/*",
+    "src/features/notifications/**/*",
+    "src/features/ota/**/*",
+    "src/features/rooms/**/*",
+    "src/features/scenes/**/*",
+    "src/features/schedules/**/*",
+    "src/features/security/**/*",
+    "src/features/devices/DeviceManagementPage.tsx",
+    "src/features/devices/components/**/*",
+    "src/features/sensors/**/*"
   ]
 }

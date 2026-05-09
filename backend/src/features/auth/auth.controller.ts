@@ -1,18 +1,17 @@
-import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { getDatabase } from '../../services/database.service';
-import { ApiResponse } from '../../types';
+import { Request, Response } from 'express';
 import { config } from '../../config';
+import { getDatabase } from '../../services/database.service';
+import { logAuditEvent } from '../../services/audit-log.service';
 
-interface UserRow {
+type UserRow = {
     id: number;
     username: string;
     email: string;
     password_hash: string;
     role: string;
-    created_at: string;
-}
+};
 
 interface TokenPayload {
     userId: number;
@@ -20,192 +19,146 @@ interface TokenPayload {
     role: string;
 }
 
-function generateTokens(user: UserRow) {
+function generateTokens(user: UserRow): { accessToken: string; refreshToken: string } {
     const payload: TokenPayload = {
         userId: user.id,
         username: user.username,
         role: user.role,
     };
 
-    const accessToken = jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn } as jwt.SignOptions);
-    const refreshToken = jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.refreshExpiresIn } as jwt.SignOptions);
-
-    return { accessToken, refreshToken };
+    return {
+        accessToken: jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn } as jwt.SignOptions),
+        refreshToken: jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.refreshExpiresIn } as jwt.SignOptions),
+    };
 }
 
-// Helper to set tokens in cookies
-function setTokenCookies(res: Response, tokens: { accessToken: string; refreshToken: string }) {
-    const isProd = config.nodeEnv === 'production';
-    
+function setTokenCookies(res: Response, tokens: { accessToken: string; refreshToken: string }): void {
+    const secure = config.jwt.cookieSecure;
+    const sameSite = config.jwt.cookieSameSite as 'lax' | 'strict' | 'none';
+
     res.cookie('accessToken', tokens.accessToken, {
         httpOnly: true,
-        secure: isProd,
-        sameSite: isProd ? 'none' : 'lax',
-        maxAge: 15 * 60 * 1000, // 15 mins
+        secure,
+        sameSite,
+        maxAge: 24 * 60 * 60 * 1000,
     });
 
     res.cookie('refreshToken', tokens.refreshToken, {
         httpOnly: true,
-        secure: isProd,
-        sameSite: isProd ? 'none' : 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        secure,
+        sameSite,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 }
 
-// POST /api/auth/register
 export function register(req: Request, res: Response): void {
-    const { username, email, password } = req.body;
-
-    if (!username || !email || !password) {
-        res.status(400).json({
-            success: false,
-            error: 'Username, email, and password are required',
-            timestamp: new Date().toISOString(),
-        });
-        return;
-    }
-
-    if (password.length < 6) {
-        res.status(400).json({
-            success: false,
-            error: 'Password must be at least 6 characters',
-            timestamp: new Date().toISOString(),
-        });
-        return;
-    }
-
+    const { username, email, password } = req.body as { username: string; email: string; password: string };
     const db = getDatabase();
+    const existing = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(username, email) as { id: number } | undefined;
 
-    try {
-        const existing = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(username, email);
-        if (existing) {
-            res.status(409).json({
-                success: false,
-                error: 'Username or email already exists',
-                timestamp: new Date().toISOString(),
-            });
-            return;
-        }
-
-        const passwordHash = bcrypt.hashSync(password, 10);
-        const result = db.prepare(
-            'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)'
-        ).run(username, email, passwordHash);
-
-        const user: UserRow = {
-            id: result.lastInsertRowid as number,
-            username,
-            email,
-            password_hash: passwordHash,
-            role: 'user',
-            created_at: new Date().toISOString(),
-        };
-
-        const tokens = generateTokens(user);
-        setTokenCookies(res, tokens);
-
-        res.status(201).json({
-            success: true,
-            data: {
-                user: { id: user.id, username: user.username, email: user.email, role: user.role }
-            },
-            timestamp: new Date().toISOString(),
-        });
-    } catch (error) {
-        console.error('[Auth] Register error:', error);
-        res.status(500).json({
+    if (existing) {
+        res.status(409).json({
             success: false,
-            error: 'Registration failed',
+            error: 'Username or email already exists',
             timestamp: new Date().toISOString(),
         });
+        return;
     }
+
+    const passwordHash = bcrypt.hashSync(password, 10);
+    const result = db.prepare(`
+        INSERT INTO users (username, email, password_hash, role)
+        VALUES (?, ?, ?, 'operator')
+    `).run(username, email, passwordHash);
+
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid) as UserRow;
+    const tokens = generateTokens(user);
+    setTokenCookies(res, tokens);
+
+    logAuditEvent({
+        category: 'auth',
+        action: 'register',
+        actor: username,
+        message: `User ${username} registered`,
+    });
+
+    res.status(201).json({
+        success: true,
+        data: {
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+            },
+        },
+        timestamp: new Date().toISOString(),
+    });
 }
 
-// POST /api/auth/login
 export function login(req: Request, res: Response): void {
-    const { username, password } = req.body;
+    const { username, password } = req.body as { username: string; password: string };
+    const db = getDatabase();
+    const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(username, username) as UserRow | undefined;
 
-    if (!username || !password) {
-        res.status(400).json({
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+        logAuditEvent({
+            category: 'auth',
+            action: 'login_failed',
+            actor: username,
+            message: `Failed login attempt for ${username}`,
+        });
+
+        res.status(401).json({
             success: false,
-            error: 'Username and password are required',
+            error: 'Invalid credentials',
             timestamp: new Date().toISOString(),
         });
         return;
     }
 
-    const db = getDatabase();
+    const tokens = generateTokens(user);
+    setTokenCookies(res, tokens);
 
-    try {
-        console.log(`[Auth] Login attempt: ${username}`);
-        const user = db.prepare(
-            'SELECT * FROM users WHERE username = ? OR email = ?'
-        ).get(username, username) as UserRow | undefined;
+    logAuditEvent({
+        category: 'auth',
+        action: 'login_success',
+        actor: user.username,
+        message: `User ${user.username} logged in`,
+    });
 
-        if (!user) {
-            console.warn(`[Auth] User not found: ${username}`);
-            res.status(401).json({
-                success: false,
-                error: 'Invalid credentials',
-                timestamp: new Date().toISOString(),
-            });
-            return;
-        }
-
-        const passMatch = bcrypt.compareSync(password, user.password_hash);
-        console.log(`[Auth] Password match for ${username}: ${passMatch}`);
-
-        if (!passMatch) {
-            res.status(401).json({
-                success: false,
-                error: 'Invalid credentials',
-                timestamp: new Date().toISOString(),
-            });
-            return;
-        }
-
-        const tokens = generateTokens(user);
-        console.log(`[Auth] Tokens generated for ${username}`);
-        setTokenCookies(res, tokens);
-
-        res.json({
-            success: true,
-            data: {
-                user: { id: user.id, username: user.username, email: user.email, role: user.role }
+    res.json({
+        success: true,
+        data: {
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
             },
-            timestamp: new Date().toISOString(),
-        });
-    } catch (error) {
-        console.error('[Auth] Login error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Login failed',
-            timestamp: new Date().toISOString(),
-        });
-    }
+        },
+        timestamp: new Date().toISOString(),
+    });
 }
 
-// POST /api/auth/refresh
 export function refreshToken(req: Request, res: Response): void {
-    const token = req.cookies.refreshToken;
-
-    if (!token) {
-        res.status(400).json({
+    const refreshTokenValue = req.cookies.refreshToken as string | undefined;
+    if (!refreshTokenValue) {
+        res.status(401).json({
             success: false,
-            error: 'Refresh token is required',
+            error: 'Refresh token required',
             timestamp: new Date().toISOString(),
         });
         return;
     }
 
     try {
-        const decoded = jwt.verify(token, config.jwt.secret) as TokenPayload;
+        const decoded = jwt.verify(refreshTokenValue, config.jwt.secret) as TokenPayload;
         const db = getDatabase();
         const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.userId) as UserRow | undefined;
 
         if (!user) {
-            res.status(401).json({ success: false, error: 'User not found', timestamp: new Date().toISOString() });
-            return;
+            throw new Error('User not found');
         }
 
         const tokens = generateTokens(user);
@@ -214,7 +167,12 @@ export function refreshToken(req: Request, res: Response): void {
         res.json({
             success: true,
             data: {
-                user: { id: user.id, username: user.username, email: user.email, role: user.role }
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                },
             },
             timestamp: new Date().toISOString(),
         });
@@ -227,41 +185,55 @@ export function refreshToken(req: Request, res: Response): void {
     }
 }
 
-// POST /api/auth/logout
-export function logout(_req: Request, res: Response): void {
+export function logout(req: Request, res: Response): void {
+    const actor = req.user?.username ?? 'anonymous';
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken');
+
+    logAuditEvent({
+        category: 'auth',
+        action: 'logout',
+        actor,
+        message: `User ${actor} logged out`,
+    });
+
     res.json({
         success: true,
-        message: 'Logged out successfully',
+        data: { logged_out: true },
         timestamp: new Date().toISOString(),
     });
 }
 
-// GET /api/auth/me
 export function getMe(req: Request, res: Response): void {
-    const user = req.user;
-    if (!user) {
-        res.status(401).json({ success: false, error: 'Not authenticated', timestamp: new Date().toISOString() });
+    if (!req.user) {
+        res.status(401).json({
+            success: false,
+            error: 'Not authenticated',
+            timestamp: new Date().toISOString(),
+        });
         return;
     }
 
     const db = getDatabase();
-    const userData = db.prepare('SELECT id, username, email, role, created_at FROM users WHERE id = ?').get(user.userId) as any;
+    const user = db.prepare('SELECT id, username, email, role FROM users WHERE id = ?').get(req.user.userId) as {
+        id: number;
+        username: string;
+        email: string;
+        role: string;
+    } | undefined;
 
-    if (!userData) {
-        res.status(404).json({ success: false, error: 'User data not found', timestamp: new Date().toISOString() });
+    if (!user) {
+        res.status(404).json({
+            success: false,
+            error: 'User not found',
+            timestamp: new Date().toISOString(),
+        });
         return;
     }
 
     res.json({
         success: true,
-        data: {
-            id: userData.id,
-            username: userData.username,
-            email: userData.email,
-            role: userData.role
-        },
+        data: user,
         timestamp: new Date().toISOString(),
     });
 }

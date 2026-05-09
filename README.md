@@ -1,163 +1,219 @@
-# 🏠 Home Smart - IoT Dashboard
+# HomeCore Nexus Control Center
 
-Hệ thống web dashboard IoT chuyên nghiệp để điều khiển và quản lý các thiết bị ESP8266.
+HomeCore Nexus là control center module-based chạy trên Orange Pi One để quản lý ESP8266 modules qua MQTT. Repo này giữ UI dark/glassmorphism hiện đại, nhưng domain đã được thu gọn về mô hình `device_id` thay vì smart-home nhiều phòng.
 
-## ✨ Tính năng
+## Mục tiêu triển khai
 
-- **Dashboard** hiển thị tổng quan hệ thống
-- **Điều khiển relay** bật/tắt từ xa qua MQTT
-- **Biểu đồ cảm biến** real-time (nhiệt độ, độ ẩm, ánh sáng, khí gas)
-- **WebSocket** cập nhật dữ liệu theo thời gian thực
-- **Responsive** hoạt động tốt trên mobile và desktop
-- **Dark theme** với glassmorphism UI
+- Orange Pi One chạy backend Express + SQLite + WebSocket 24/7
+- Mosquitto chạy native tại `mqtt://127.0.0.1:1883`
+- Pi-hole chạy native tại `http://192.168.0.103/admin`
+- ESP8266 firmware giữ nguyên contract hiện tại
+  - command topic: `homelab/device/pc_relay_01/cmd`
+  - payload command: `pulse`, `on`, `off`
 
-## 🏗️ Kiến trúc
+## Kiến trúc
 
+```text
+Frontend static build  ->  Nginx / file server
+                               |
+Browser  <->  Express API + WS + SQLite  <->  Mosquitto native  <->  ESP8266 modules
+                               |
+                           Pi-hole native (linked from UI)
 ```
-Frontend (React + Vite)  ←→  Backend (Express + WS)  ←→  MQTT Broker  ←→  ESP8266
-```
 
-## 🚀 Chạy Development
+## MQTT contract
 
-### Cài đặt dependencies
+### Command
+
+- Topic: `homelab/device/<device_id>/cmd`
+- Payload raw string:
+  - `pulse`
+  - `on`
+  - `off`
+
+### Backend subscriptions
+
+- `homelab/device/+/status`
+- `homelab/device/+/state`
+- `homelab/device/+/telemetry`
+
+## API chính
+
+### Auth
+
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+
+### Modules
+
+- `GET /api/devices`
+- `POST /api/devices`
+- `GET /api/devices/:id`
+- `PATCH /api/devices/:id`
+- `DELETE /api/devices/:id`
+- `POST /api/devices/:id/command`
+
+### Runtime
+
+- `GET /api/logs`
+- `GET /api/system/health`
+- `GET /api/automations`
+- `POST /api/automations`
+- `PATCH /api/automations/:id`
+- `DELETE /api/automations/:id`
+
+## Module seed mặc định
+
+Backend tự seed một module:
+
+- `device_id`: `pc_relay_01`
+- `name`: `PC Server Power Relay`
+- `type`: `pc-control`
+- `cmd_topic`: `homelab/device/pc_relay_01/cmd`
+- `state_topic`: `homelab/device/pc_relay_01/state`
+- `status_topic`: `homelab/device/pc_relay_01/status`
+- `telemetry_topic`: `homelab/device/pc_relay_01/telemetry`
+
+Tài khoản seed mặc định:
+
+- `admin / admin123`
+
+## Development
+
+### Backend
 
 ```bash
-# Backend
 cd backend
 npm install
+npm run build
+npm start
+```
 
-# Frontend
+### Frontend
+
+```bash
 cd frontend
 npm install
+npm run build
 ```
 
-### Chạy MQTT Broker (cần Docker)
+Nếu cần dev server cục bộ:
 
 ```bash
-docker run -d --name mosquitto -p 1883:1883 -p 9001:9001 eclipse-mosquitto:2
-```
-
-### Chạy Backend
-
-```bash
-cd backend
-cp .env.example .env    # Chỉnh sửa nếu cần
+cd frontend
 npm run dev
 ```
 
-### Chạy Frontend
+## Deploy trên Orange Pi One
+
+### 1. Chuẩn bị hệ thống
+
+- Cài Node.js LTS
+- Đảm bảo Mosquitto native đang chạy trên `127.0.0.1:1883`
+- Đảm bảo Pi-hole native đang chạy trên `http://192.168.0.103/admin`
+
+### 2. Clone và cài dependencies
 
 ```bash
-cd frontend
-cp .env.example .env    # Chỉnh sửa nếu cần
-npm run dev
+git clone <repo-url> homecore-nexus
+cd homecore-nexus
+
+cd backend
+npm install
+npm run build
+
+cd ../frontend
+npm install
+npm run build
 ```
 
-Mở trình duyệt: **http://localhost:5173**
+### 3. Cấu hình backend
 
-## 🐳 Deploy Production (Docker)
-
-### Sử dụng Docker Compose
-
-```bash
-# Build và chạy tất cả services
-docker-compose up -d --build
-
-# Xem logs
-docker-compose logs -f
-
-# Dừng
-docker-compose down
-```
-
-**Truy cập:** http://localhost:3000
-
-## 📦 Deploy trên CasaOS
-
-### Bước 1: Upload project
-
-```bash
-# SSH vào server CasaOS
-scp -r "Home Smart" user@casaos-ip:/DATA/AppData/home-smart
-```
-
-### Bước 2: Cài đặt qua CasaOS App Store
-
-1. Mở CasaOS dashboard
-2. Vào **App Store** → **Custom Install**
-3. Chọn **Docker Compose** và paste nội dung `docker-compose.yml`
-4. Hoặc SSH vào server và chạy:
-
-```bash
-cd /DATA/AppData/home-smart
-docker-compose up -d --build
-```
-
-### Bước 3: Cấu hình
-
-Chỉnh sửa file `.env` để thay đổi port hoặc cấu hình MQTT:
+Tạo hoặc chỉnh `backend/.env`:
 
 ```env
-FRONTEND_PORT=3000
-BACKEND_PORT=4000
-MQTT_PORT=1883
+PORT=5000
+NODE_ENV=production
+CORS_ORIGIN=http://<orange-pi-ip>
+MQTT_BROKER_URL=mqtt://127.0.0.1:1883
+MQTT_TOPIC_ROOT=homelab/device
+WS_PATH=/ws
+JWT_SECRET=<strong-random-secret>
+PIHOLE_URL=http://192.168.0.103/admin
 ```
 
-### Bước 4: Truy cập
+Nếu muốn đổi đường dẫn DB:
 
-Mở trình duyệt: `http://<casaos-ip>:3000`
-
-## 📁 Cấu trúc thư mục
-
-```
-Home Smart/
-├── frontend/               # React + TypeScript + Vite
-│   ├── src/
-│   │   ├── app/            # App entry, providers
-│   │   ├── features/       # Feature modules
-│   │   │   ├── dashboard/  # Dashboard page
-│   │   │   ├── devices/    # Device card, relay control
-│   │   │   └── sensors/    # Sensor charts
-│   │   ├── shared/         # Shared components, hooks, services
-│   │   └── styles/         # Design system
-│   ├── Dockerfile
-│   └── nginx.conf
-├── backend/                # Node.js + Express + TypeScript
-│   ├── src/
-│   │   ├── config/         # Environment config
-│   │   ├── features/       # Device & sensor modules
-│   │   ├── services/       # MQTT & WebSocket
-│   │   └── middleware/     # Express middleware
-│   └── Dockerfile
-├── mosquitto/              # MQTT broker config
-├── docker-compose.yml
-└── .env
+```env
+DB_PATH=/opt/homecore-nexus/data/homecore-nexus.db
 ```
 
-## 🔮 Mở rộng trong tương lai
+### 4. Chạy backend bằng systemd
 
-- 🔐 Authentication (JWT)
-- 📱 Multi-device management
-- 📅 Scheduling & automation rules
-- 📊 Data logging (SQLite/PostgreSQL)
-- 🔄 OTA firmware updates
-- 📧 Alert notifications (Email/Telegram)
+Tạo file `/etc/systemd/system/homecore-nexus-backend.service`:
 
-## 📜 API Endpoints
+```ini
+[Unit]
+Description=HomeCore Nexus Backend
+After=network.target mosquitto.service
+Wants=mosquitto.service
 
-| Method | Endpoint | Mô tả |
-|--------|----------|--------|
-| GET | `/api/devices` | Lấy danh sách thiết bị |
-| GET | `/api/devices/:id` | Lấy thông tin thiết bị |
-| POST | `/api/devices/:id/relay` | Bật/tắt relay |
-| GET | `/api/sensors/:deviceId/data` | Lấy dữ liệu cảm biến |
-| GET | `/api/health` | Health check |
+[Service]
+Type=simple
+User=orangepi
+WorkingDirectory=/opt/homecore-nexus/backend
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/homecore-nexus/backend/dist/index.js
+Restart=always
+RestartSec=5
 
-## 📡 MQTT Topics
+[Install]
+WantedBy=multi-user.target
+```
 
-| Topic | Hướng | Mô tả |
-|-------|-------|--------|
-| `home-smart/{deviceId}/sensors/{sensorId}` | ESP → Server | Dữ liệu cảm biến |
-| `home-smart/{deviceId}/relay/command` | Server → ESP | Lệnh điều khiển relay |
-| `home-smart/{deviceId}/relay/state` | ESP → Server | Trạng thái relay |
-| `home-smart/{deviceId}/status` | ESP → Server | Online/Offline |
+Reload và bật service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable homecore-nexus-backend
+sudo systemctl start homecore-nexus-backend
+sudo systemctl status homecore-nexus-backend
+```
+
+### 5. Serve frontend static
+
+Frontend build output nằm tại `frontend/dist`.
+
+Có thể dùng Nginx:
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+
+    root /opt/homecore-nexus/frontend/dist;
+    index index.html;
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
+```
+
+Nếu frontend và backend khác origin, nhớ đặt `CORS_ORIGIN` đúng với URL frontend.
+
+## Notes vận hành
+
+- Không dùng Docker Compose để chạy Mosquitto trong target Orange Pi này.
+- Backend production dùng `node dist/index.js`, không dùng `tsx`, `ts-node`, hay Vite dev server.
+- Frontend command UI luôn yêu cầu confirm trước khi publish `pulse/on/off`.
+- UI realtime qua WebSocket, nhưng source of truth vẫn là event từ backend/MQTT.
+
+## Build gate
+
+Sau mỗi phase refactor cần pass:
+
+```bash
+cd backend && npm run build
+cd frontend && npm run build
+```

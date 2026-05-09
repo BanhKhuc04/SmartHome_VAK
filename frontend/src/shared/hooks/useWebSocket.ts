@@ -1,85 +1,60 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { WebSocketMessage } from '../types';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:4000/ws';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:5000/ws';
 
 interface UseWebSocketReturn {
     isConnected: boolean;
     lastMessage: WebSocketMessage | null;
-    sendMessage: (msg: unknown) => void;
 }
 
-export function useWebSocket(
-    onMessage?: (message: WebSocketMessage) => void
-): UseWebSocketReturn {
+export function useWebSocket(onMessage?: (message: WebSocketMessage) => void): UseWebSocketReturn {
     const [isConnected, setIsConnected] = useState(false);
     const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
-    const wsRef = useRef<WebSocket | null>(null);
-    const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const socketRef = useRef<WebSocket | null>(null);
+    const reconnectTimerRef = useRef<number | null>(null);
     const onMessageRef = useRef(onMessage);
+
     onMessageRef.current = onMessage;
 
     const connect = useCallback(() => {
-        try {
-            const ws = new WebSocket(WS_URL);
-            wsRef.current = ws;
+        const socket = new WebSocket(WS_URL);
+        socketRef.current = socket;
 
-            ws.onopen = () => {
-                console.log('[WS] Connected');
-                setIsConnected(true);
-            };
+        socket.onopen = () => {
+            setIsConnected(true);
+        };
 
-            ws.onmessage = (event) => {
-                try {
-                    const message: WebSocketMessage = JSON.parse(event.data);
-                    setLastMessage(message);
-                    onMessageRef.current?.(message);
-                } catch (err) {
-                    console.warn('[WS] Invalid message:', err);
-                }
-            };
+        socket.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data) as WebSocketMessage;
+                setLastMessage(message);
+                onMessageRef.current?.(message);
+            } catch (error) {
+                console.warn('[WS] Failed to parse message', error);
+            }
+        };
 
-            ws.onclose = () => {
-                console.log('[WS] Disconnected, reconnecting in 3s...');
-                setIsConnected(false);
-                wsRef.current = null;
+        socket.onclose = () => {
+            setIsConnected(false);
+            socketRef.current = null;
+            reconnectTimerRef.current = window.setTimeout(connect, 3000);
+        };
 
-                // Auto-reconnect
-                reconnectTimeoutRef.current = setTimeout(() => {
-                    connect();
-                }, 3000);
-            };
-
-            ws.onerror = (error) => {
-                console.error('[WS] Error:', error);
-                ws.close();
-            };
-        } catch (err) {
-            console.error('[WS] Connection failed:', err);
-            reconnectTimeoutRef.current = setTimeout(() => {
-                connect();
-            }, 3000);
-        }
+        socket.onerror = () => {
+            socket.close();
+        };
     }, []);
 
     useEffect(() => {
         connect();
-
         return () => {
-            if (reconnectTimeoutRef.current) {
-                clearTimeout(reconnectTimeoutRef.current);
+            if (reconnectTimerRef.current) {
+                window.clearTimeout(reconnectTimerRef.current);
             }
-            if (wsRef.current) {
-                wsRef.current.close();
-            }
+            socketRef.current?.close();
         };
     }, [connect]);
 
-    const sendMessage = useCallback((msg: unknown) => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(msg));
-        }
-    }, []);
-
-    return { isConnected, lastMessage, sendMessage };
+    return { isConnected, lastMessage };
 }

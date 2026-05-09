@@ -330,7 +330,7 @@ export const Screensaver: React.FC<ScreensaverProps> = ({ idleTimeout = 30000, c
                                 color: type === 'default' ? 'rgba(148,163,184,0.3)' : 'rgba(255,255,255,0.5)',
                                 animation: 'pulse 3s ease-in-out infinite',
                             }}>
-                                🏠 Home Smart • Di chuột để quay lại
+                                HomeCore Nexus • Di chuột để quay lại
                             </div>
                         </div>
 

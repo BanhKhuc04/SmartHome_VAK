@@ -27,6 +27,8 @@ export interface Settings {
     language: 'vi' | 'en';
     theme: 'dark' | 'light';
     mqttBroker: string;
+    piholeUrl: string;
+    nodeLabel: string;
     telegramToken: string;
     telegramChatId: string;
 }
@@ -41,7 +43,9 @@ const defaultSettings: Settings = {
     slideshowInterval: 30,
     language: 'vi',
     theme: 'dark',
-    mqttBroker: 'mqtt://localhost:1883',
+    mqttBroker: 'mqtt://127.0.0.1:1883',
+    piholeUrl: 'http://192.168.0.103/admin',
+    nodeLabel: 'Orange Pi One',
     telegramToken: '',
     telegramChatId: '',
 };
@@ -55,7 +59,7 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [settings, setSettings] = useState<Settings>(() => {
-        const saved = localStorage.getItem('home_smart_settings');
+        const saved = localStorage.getItem('homecore_nexus_settings');
         if (!saved) return defaultSettings;
         
         try {
@@ -81,7 +85,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     useEffect(() => {
         try {
-            localStorage.setItem('home_smart_settings', JSON.stringify(settings));
+            localStorage.setItem('homecore_nexus_settings', JSON.stringify(settings));
         } catch (e) {
             console.warn('Settings persistence failed (likely quota exceeded):', e);
             // We don't crash here, the state is still in memory.

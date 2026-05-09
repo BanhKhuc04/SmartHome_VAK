@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { ReactNode, createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { apiService } from '../services/api.service';
 
 interface User {
@@ -8,35 +8,28 @@ interface User {
     role: string;
 }
 
-interface AuthContextType {
+interface AuthContextValue {
     user: User | null;
     isAuthenticated: boolean;
     isLoading: boolean;
-    login: (username: string, password: string) => Promise<boolean>;
-    register: (username: string, email: string, password: string) => Promise<boolean>;
-    logout: () => void;
     error: string | null;
+    login: (username: string, password: string) => Promise<boolean>;
+    logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Verify session on initial mount or page refresh
     const checkAuth = useCallback(async () => {
         setIsLoading(true);
-        console.log('[AuthContext] Verifying session...');
         try {
-            const userData = await apiService.getMe();
-            console.log('[AuthContext] Session verified:', userData);
-            if (userData) {
-                setUser(userData as User);
-            }
-        } catch (err) {
-            console.warn('[AuthContext] No active session found');
+            const data = await apiService.getMe();
+            setUser((data as User) || null);
+        } catch {
             setUser(null);
         } finally {
             setIsLoading(false);
@@ -46,45 +39,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     useEffect(() => {
         checkAuth();
 
-        // Listen for session expiration events from the API interceptor
-        const handleSessionExpired = () => {
+        const handleExpired = () => {
             setUser(null);
-            setError('Your session has expired. Please login again.');
+            setError('Session expired. Please log in again.');
         };
 
-        window.addEventListener('auth:session-expired', handleSessionExpired);
-        return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
+        window.addEventListener('auth:session-expired', handleExpired);
+        return () => window.removeEventListener('auth:session-expired', handleExpired);
     }, [checkAuth]);
 
-    const login = useCallback(async (username: string, password: string): Promise<boolean> => {
+    const login = useCallback(async (username: string, password: string) => {
         setError(null);
-        console.log(`[AuthContext] Attempting login for: ${username}`);
         try {
-            const userData = await apiService.login(username, password);
-            console.log('[AuthContext] Login response:', userData);
-            if (userData) {
-                setUser(userData.user);
+            const result = await apiService.login(username, password) as { user: User } | undefined;
+            if (result?.user) {
+                setUser(result.user);
                 return true;
             }
             return false;
-        } catch (err: any) {
-            console.error('[AuthContext] Login error:', err);
-            setError(err.response?.data?.error || err.message || 'Login failed');
-            return false;
-        }
-    }, []);
-
-    const register = useCallback(async (username: string, email: string, password: string): Promise<boolean> => {
-        setError(null);
-        try {
-            const userData = await apiService.register(username, email, password);
-            if (userData) {
-                setUser(userData.user);
-                return true;
-            }
-            return false;
-        } catch (err: any) {
-            setError(err.response?.data?.error || err.message || 'Registration failed');
+        } catch (error: any) {
+            setError(error.response?.data?.error || error.message || 'Login failed');
             return false;
         }
     }, []);
@@ -92,8 +66,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const logout = useCallback(async () => {
         try {
             await apiService.logout();
-        } catch (err) {
-            console.error('Logout error:', err);
         } finally {
             setUser(null);
             setError(null);
@@ -101,14 +73,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }, []);
 
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, register, logout, error }}>
+        <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, error, login, logout }}>
             {children}
         </AuthContext.Provider>
     );
 };
 
-export function useAuth(): AuthContextType {
+export function useAuth(): AuthContextValue {
     const context = useContext(AuthContext);
-    if (!context) throw new Error('useAuth must be used within AuthProvider');
+    if (!context) {
+        throw new Error('useAuth must be used within AuthProvider');
+    }
     return context;
 }

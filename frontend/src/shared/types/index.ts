@@ -1,78 +1,96 @@
-// ============================================
-// Device Types
-// ============================================
+export type DeviceStatus = 'online' | 'offline' | 'unknown';
+export type DeviceCommand = 'pulse' | 'on' | 'off';
+export type AuditLogCategory = 'auth' | 'command' | 'device_update' | 'mqtt_event' | 'automation' | 'system';
+export type WebSocketMessageType =
+    | 'connection_status'
+    | 'device_status'
+    | 'device_state'
+    | 'device_telemetry'
+    | 'audit_log'
+    | 'system_health';
 
-export interface Device {
-    id: string;
+export interface ModuleDevice {
+    device_id: string;
     name: string;
-    type: 'esp8266' | 'esp32';
+    type: string;
     location: string;
-    room_id?: string;
-    status: 'online' | 'offline';
-    lastSeen: string;
-    relays: Relay[];
-    sensors: Sensor[];
+    status: DeviceStatus;
+    ip_address: string | null;
+    firmware_version: string | null;
+    cmd_topic: string;
+    state_topic: string;
+    status_topic: string;
+    telemetry_topic: string;
+    last_seen: string | null;
+    metadata_json: Record<string, unknown>;
+    last_state: string | null;
+    telemetry_last_payload: Record<string, unknown> | string | null;
+    created_at: string;
+    updated_at: string;
 }
 
-export interface Relay {
+export interface AuditLogEntry {
+    id: number;
+    category: AuditLogCategory;
+    action: string;
+    message: string;
+    device_id: string | null;
+    actor: string | null;
+    payload_json: Record<string, unknown> | string | null;
+    created_at: string;
+}
+
+export interface AutomationRule {
     id: string;
     name: string;
-    pin: number;
-    state: boolean;
+    device_id: string;
+    command: DeviceCommand;
+    schedule: string;
+    enabled: boolean;
+    description: string;
+    last_run: string | null;
+    created_at: string;
+    updated_at: string;
 }
 
-export interface Sensor {
-    id: string;
-    name: string;
-    type: 'temperature' | 'humidity' | 'light' | 'motion' | 'gas';
-    value: number;
-    unit: string;
-    lastUpdated: string;
+export interface SystemHealth {
+    status: 'healthy';
+    mqtt: {
+        connected: boolean;
+        broker_url: string;
+        subscriptions: string[];
+    };
+    websocket: {
+        clients: number;
+        path: string;
+    };
+    sqlite: {
+        connected: boolean;
+        path: string;
+    };
+    host: {
+        hostname: string;
+        platform: string;
+        arch: string;
+        uptime_seconds: number;
+        total_memory_bytes: number;
+        free_memory_bytes: number;
+        load_average: number[];
+    };
+    pihole_url: string;
+    timestamp: string;
 }
-
-// ============================================
-// API Types
-// ============================================
 
 export interface ApiResponse<T = unknown> {
     success: boolean;
     data?: T;
     error?: string;
+    details?: string[];
     timestamp: string;
 }
 
-export interface RelayCommand {
-    relayId: string;
-    state: boolean;
-}
-
-// ============================================
-// WebSocket Types
-// ============================================
-
-export type WebSocketMessageType =
-    | 'device_update'
-    | 'sensor_data'
-    | 'relay_state'
-    | 'connection_status'
-    | 'system_metrics'
-    | 'notification'
-    | 'automation_triggered'
-    | 'energy_update';
-
-export interface WebSocketMessage {
+export interface WebSocketMessage<T = unknown> {
     type: WebSocketMessageType;
-    payload: Record<string, unknown>;
+    payload: T;
     timestamp: string;
 }
-
-// ============================================
-// Sensor Data
-// ============================================
-
-export interface SensorDataPoint {
-    value: number;
-    timestamp: string;
-}
-
-export type SensorHistory = Record<string, SensorDataPoint[]>;

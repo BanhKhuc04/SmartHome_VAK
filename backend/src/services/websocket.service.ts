@@ -1,11 +1,11 @@
-import { WebSocketServer, WebSocket } from 'ws';
 import { Server } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
 import { config } from '../config';
 import { WebSocketMessage, WebSocketMessageType } from '../types';
 
 class WebSocketService {
     private wss: WebSocketServer | null = null;
-    private clients: Set<WebSocket> = new Set();
+    private clients = new Set<WebSocket>();
 
     initialize(server: Server): void {
         this.wss = new WebSocketServer({
@@ -13,55 +13,50 @@ class WebSocketService {
             path: config.ws.path,
         });
 
-        this.wss.on('connection', (ws: WebSocket) => {
+        this.wss.on('connection', (ws) => {
             this.clients.add(ws);
-            console.log(`[WS] Client connected (total: ${this.clients.size})`);
 
-            // Send connection confirmation
             this.sendToClient(ws, {
                 type: 'connection_status',
-                payload: { connected: true },
+                payload: { connected: true, app: config.app.name },
                 timestamp: new Date().toISOString(),
             });
 
             ws.on('close', () => {
                 this.clients.delete(ws);
-                console.log(`[WS] Client disconnected (total: ${this.clients.size})`);
             });
 
-            ws.on('error', (error) => {
-                console.error('[WS] Client error:', error.message);
+            ws.on('error', () => {
                 this.clients.delete(ws);
             });
         });
 
-        console.log(`[WS] WebSocket server initialized on path ${config.ws.path}`);
+        console.log(`[WS] Listening on ${config.ws.path}`);
     }
 
-    broadcast(type: WebSocketMessageType, payload: unknown): void {
-        const message: WebSocketMessage = {
+    broadcast<T>(type: WebSocketMessageType, payload: T): void {
+        const message: WebSocketMessage<T> = {
             type,
             payload,
             timestamp: new Date().toISOString(),
         };
 
-        const data = JSON.stringify(message);
-
-        this.clients.forEach((client) => {
+        const serialized = JSON.stringify(message);
+        for (const client of this.clients) {
             if (client.readyState === WebSocket.OPEN) {
-                client.send(data);
+                client.send(serialized);
             }
-        });
-    }
-
-    private sendToClient(ws: WebSocket, message: WebSocketMessage): void {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify(message));
         }
     }
 
     getClientCount(): number {
         return this.clients.size;
+    }
+
+    private sendToClient<T>(ws: WebSocket, message: WebSocketMessage<T>): void {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(message));
+        }
     }
 }
 

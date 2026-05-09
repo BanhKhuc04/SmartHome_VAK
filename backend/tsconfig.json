@@ -27,6 +27,16 @@
     ],
     "exclude": [
         "node_modules",
-        "dist"
+        "dist",
+        "src/features/ai/**/*",
+        "src/features/notifications/**/*",
+        "src/features/ota/**/*",
+        "src/features/scenes/**/*",
+        "src/features/schedules/**/*",
+        "src/features/sensors/**/*",
+        "src/services/ai.service.ts",
+        "src/services/device.service.ts",
+        "src/services/energy.service.ts",
+        "src/services/mqtt-bridge.service.ts"
     ]
 }

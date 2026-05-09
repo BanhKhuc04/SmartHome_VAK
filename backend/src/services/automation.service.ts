@@ -1,146 +1,179 @@
+import cron, { ScheduledTask } from 'node-cron';
 import { getDatabase } from './database.service';
 import { mqttService } from './mqtt.service';
-import { wsService } from './websocket.service';
+import { logAuditEvent } from './audit-log.service';
+import { AutomationRule, DeviceCommand } from '../types';
 
-export interface AutomationRule {
+type AutomationRow = {
     id: string;
     name: string;
-    trigger_json: string;
-    conditions_json: string;
-    actions_json: string;
+    device_id: string;
+    command: DeviceCommand;
+    schedule: string;
     enabled: number;
-    last_triggered?: string;
-}
+    description: string;
+    last_run: string | null;
+    created_at: string;
+    updated_at: string;
+};
 
 class AutomationService {
-    private interval: NodeJS.Timeout | null = null;
+    private tasks = new Map<string, ScheduledTask>();
 
     start(): void {
-        console.log('[Automation] Starting engine...');
-        this.interval = setInterval(() => this.evaluateRules(), 1000);
+        this.reload();
     }
 
     stop(): void {
-        if (this.interval) {
-            clearInterval(this.interval);
-            this.interval = null;
+        for (const task of this.tasks.values()) {
+            task.stop();
+            task.destroy();
+        }
+        this.tasks.clear();
+    }
+
+    reload(): void {
+        this.stop();
+
+        const db = getDatabase();
+        const automations = db.prepare(`
+            SELECT id, name, device_id, command, schedule, enabled, description, last_run, created_at, updated_at
+            FROM automations
+            WHERE enabled = 1
+        `).all() as AutomationRow[];
+
+        for (const automation of automations) {
+            if (!cron.validate(automation.schedule)) {
+                console.warn(`[Automation] Skipping invalid cron: ${automation.id}`);
+                continue;
+            }
+
+            const task = cron.schedule(automation.schedule, () => {
+                this.executeAutomation(automation.id);
+            });
+
+            this.tasks.set(automation.id, task);
         }
     }
 
-    async evaluateRules(): Promise<void> {
+    getAll(): AutomationRule[] {
         const db = getDatabase();
-        const rules = db.prepare('SELECT * FROM automation_rules WHERE enabled = 1').all() as AutomationRule[];
+        const rows = db.prepare(`
+            SELECT id, name, device_id, command, schedule, enabled, description, last_run, created_at, updated_at
+            FROM automations
+            ORDER BY created_at DESC
+        `).all() as AutomationRow[];
 
-        for (const rule of rules) {
-            try {
-                const trigger = JSON.parse(rule.trigger_json);
-                const conditions = JSON.parse(rule.conditions_json);
-                const actions = JSON.parse(rule.actions_json);
-
-                if (this.checkTrigger(trigger) && this.checkConditions(conditions)) {
-                    await this.executeActions(rule.id, actions);
-                }
-            } catch (err) {
-                console.error(`[Automation] Error evaluating rule ${rule.id}:`, err);
-            }
-        }
+        return rows.map(this.mapRow);
     }
 
-    private checkTrigger(trigger: any): boolean {
-        const now = new Date();
-        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-
-        if (trigger.type === 'time') {
-            return trigger.value === currentTime;
-        }
-
+    upsert(input: {
+        id: string;
+        name: string;
+        device_id: string;
+        command: DeviceCommand;
+        schedule: string;
+        enabled: boolean;
+        description?: string;
+    }): AutomationRule {
         const db = getDatabase();
-        if (trigger.type === 'sensor') {
-            const sensorState = db.prepare(`
-                SELECT value FROM sensor_history 
-                WHERE sensor_id = ? AND device_id = ? 
-                ORDER BY recorded_at DESC LIMIT 1
-            `).get(trigger.sensorId, trigger.deviceId) as { value: number } | undefined;
+        db.prepare(`
+            INSERT INTO automations (id, name, device_id, command, schedule, enabled, description, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                device_id = excluded.device_id,
+                command = excluded.command,
+                schedule = excluded.schedule,
+                enabled = excluded.enabled,
+                description = excluded.description,
+                updated_at = CURRENT_TIMESTAMP
+        `).run(
+            input.id,
+            input.name,
+            input.device_id,
+            input.command,
+            input.schedule,
+            input.enabled ? 1 : 0,
+            input.description || ''
+        );
 
-            if (!sensorState) return false;
+        this.reload();
 
-            const val = sensorState.value;
-            if (trigger.operator === 'gt') return val > trigger.value;
-            if (trigger.operator === 'lt') return val < trigger.value;
-            if (trigger.operator === 'eq') return val == trigger.value;
-        }
+        const row = db.prepare(`
+            SELECT id, name, device_id, command, schedule, enabled, description, last_run, created_at, updated_at
+            FROM automations
+            WHERE id = ?
+        `).get(input.id) as AutomationRow;
 
-        if (trigger.type === 'device') {
-            const device = db.prepare('SELECT status FROM devices WHERE id = ?').get(trigger.deviceId) as { status: string } | undefined;
-            return device?.status === trigger.value;
-        }
-        
-        return false;
+        logAuditEvent({
+            category: 'automation',
+            action: 'automation_saved',
+            device_id: input.device_id,
+            message: `Automation ${input.name} saved`,
+            payload_json: input,
+        });
+
+        return this.mapRow(row);
     }
 
-    private checkConditions(conditions: any[]): boolean {
-        if (!conditions || conditions.length === 0) return true;
-
+    delete(id: string): boolean {
         const db = getDatabase();
-        for (const cond of conditions) {
-            if (cond.type === 'sensor') {
-                const sensorState = db.prepare(`
-                    SELECT value FROM sensor_history 
-                    WHERE sensor_id = ? AND device_id = ? 
-                    ORDER BY recorded_at DESC LIMIT 1
-                `).get(cond.sensorId, cond.deviceId) as { value: number } | undefined;
-                
-                if (!sensorState) return false;
+        const existing = db.prepare('SELECT name, device_id FROM automations WHERE id = ?').get(id) as { name: string; device_id: string } | undefined;
+        const result = db.prepare('DELETE FROM automations WHERE id = ?').run(id);
+        this.reload();
 
-                const val = sensorState.value;
-                if (cond.operator === 'gt' && !(val > cond.value)) return false;
-                if (cond.operator === 'lt' && !(val < cond.value)) return false;
-                if (cond.operator === 'eq' && !(val == cond.value)) return false;
-            }
+        if (existing && result.changes > 0) {
+            logAuditEvent({
+                category: 'automation',
+                action: 'automation_deleted',
+                device_id: existing.device_id,
+                message: `Automation ${existing.name} deleted`,
+            });
         }
 
-        return true;
+        return result.changes > 0;
     }
 
-    private async executeActions(ruleId: string, actions: any[]): Promise<void> {
+    private executeAutomation(id: string): void {
         const db = getDatabase();
-        
-        // Cooldown guard to prevent rapid firing (especially for time triggers within the same minute)
-        const rule = db.prepare('SELECT last_triggered FROM automation_rules WHERE id = ?').get(ruleId) as { last_triggered: string };
-        if (rule.last_triggered) {
-            const lastTrip = new Date(rule.last_triggered).getTime();
-            if (Date.now() - lastTrip < 55000) return; // ~1 minute cooldown
-        }
+        const automation = db.prepare(`
+            SELECT a.id, a.name, a.device_id, a.command, d.cmd_topic
+            FROM automations a
+            JOIN devices d ON d.device_id = a.device_id
+            WHERE a.id = ?
+        `).get(id) as { id: string; name: string; device_id: string; command: DeviceCommand; cmd_topic: string } | undefined;
 
-        console.log(`[Automation] ⚡ Triggering rule: ${ruleId}`);
-        
-        for (const action of actions) {
-            if (action.type === 'device') {
-                const device = db.prepare(`
-                    SELECT d.location, r.name as room_name 
-                    FROM devices d 
-                    LEFT JOIN rooms r ON d.room_id = r.id 
-                    WHERE d.id = ?
-                `).get(action.deviceId) as { location: string, room_name: string | null };
+        if (!automation) return;
 
-                const topicRoom = device?.room_name || device?.location || 'default';
-                mqttService.publishCommand(topicRoom, action.deviceId, action.command);
-            } 
-            else if (action.type === 'scene') {
-                // Future: Implement scene activation logic
-                console.log(`[Automation] Activating scene: ${action.sceneId}`);
-            }
-            else if (action.type === 'notification') {
-                db.prepare(`
-                    INSERT INTO notifications (type, title, message) 
-                    VALUES (?, ?, ?)
-                `).run(action.level || 'info', action.title || 'Automation Alert', action.message);
-                wsService.broadcast('notification', { title: action.title, message: action.message });
-            }
-        }
+        mqttService.publishCommand(automation.cmd_topic, automation.command);
+        db.prepare('UPDATE automations SET last_run = CURRENT_TIMESTAMP WHERE id = ?').run(id);
 
-        db.prepare('UPDATE automation_rules SET last_triggered = CURRENT_TIMESTAMP WHERE id = ?').run(ruleId);
-        wsService.broadcast('automation_triggered', { ruleId });
+        logAuditEvent({
+            category: 'automation',
+            action: 'automation_executed',
+            device_id: automation.device_id,
+            message: `Automation ${automation.name} executed`,
+            payload_json: {
+                command: automation.command,
+                cmd_topic: automation.cmd_topic,
+            },
+        });
+    }
+
+    private mapRow(row: AutomationRow): AutomationRule {
+        return {
+            id: row.id,
+            name: row.name,
+            device_id: row.device_id,
+            command: row.command,
+            schedule: row.schedule,
+            enabled: row.enabled === 1,
+            description: row.description,
+            last_run: row.last_run,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        };
     }
 }
 

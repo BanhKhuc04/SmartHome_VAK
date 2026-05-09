@@ -1,88 +1,76 @@
+import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
-import { Request, Response, NextFunction } from 'express';
 
-// ============ Validation Schemas ============
-
-export const CreateDeviceSchema = z.object({
-    id: z.string().min(1, 'ID is required').max(50).regex(/^[a-zA-Z0-9_-]+$/, 'ID must be alphanumeric'),
-    name: z.string().min(1, 'Name is required').max(100),
-    type: z.enum(['esp8266', 'esp32']).default('esp8266'),
-    location: z.string().max(200).optional().default(''),
-    relays: z.array(z.object({
-        id: z.string().min(1),
-        name: z.string().min(1),
-        pin: z.number().int().min(0).max(40).optional().default(0),
-    })).optional(),
-    sensors: z.array(z.object({
-        id: z.string().min(1),
-        name: z.string().min(1),
-        type: z.string().min(1),
-        unit: z.string().optional().default(''),
-    })).optional(),
-});
-
-export const UpdateDeviceSchema = z.object({
-    name: z.string().min(1).max(100).optional(),
-    location: z.string().max(200).optional(),
-    type: z.enum(['esp8266', 'esp32']).optional(),
-});
-
-export const RelayCommandSchema = z.object({
-    relayId: z.string().min(1, 'relayId is required'),
-    state: z.boolean(),
-});
-
-export const RegisterSchema = z.object({
-    username: z.string().min(3, 'Username must be 3+ chars').max(50).regex(/^[a-zA-Z0-9_]+$/, 'Alphanumeric only'),
-    email: z.string().email('Invalid email'),
-    password: z.string().min(6, 'Password must be 6+ chars').max(100),
-});
+const metadataSchema = z.record(z.string(), z.unknown()).optional().default({});
 
 export const LoginSchema = z.object({
     username: z.string().min(1, 'Username required'),
     password: z.string().min(1, 'Password required'),
 });
 
-export const CreateScheduleSchema = z.object({
-    name: z.string().min(1, 'Name required').max(100),
-    deviceId: z.string().min(1),
-    relayId: z.string().min(1),
-    action: z.enum(['on', 'off', 'toggle']).default('on'),
-    cronExpression: z.string().min(1, 'Cron expression required'),
+export const RegisterSchema = z.object({
+    username: z.string().min(3).max(50),
+    email: z.string().email(),
+    password: z.string().min(6).max(100),
 });
 
-export const CreateAlertRuleSchema = z.object({
-    name: z.string().min(1).max(100),
-    deviceId: z.string().min(1),
-    sensorId: z.string().min(1),
-    condition: z.enum(['gt', 'lt', 'gte', 'lte', 'eq']).default('gt'),
-    threshold: z.number(),
-    channel: z.enum(['telegram', 'email', 'webhook']).default('telegram'),
-    cooldownMinutes: z.number().int().min(1).max(1440).optional().default(5),
+export const CreateDeviceSchema = z.object({
+    device_id: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/, 'device_id must be alphanumeric'),
+    name: z.string().min(1).max(120),
+    type: z.string().min(1).max(80),
+    location: z.string().max(120).optional().default(''),
+    ip_address: z.string().max(120).nullable().optional().default(null),
+    firmware_version: z.string().max(80).nullable().optional().default(null),
+    cmd_topic: z.string().min(1).max(255).optional(),
+    state_topic: z.string().min(1).max(255).optional(),
+    status_topic: z.string().min(1).max(255).optional(),
+    telemetry_topic: z.string().min(1).max(255).optional(),
+    metadata_json: metadataSchema,
 });
 
-export const UploadFirmwareSchema = z.object({
-    version: z.string().min(1, 'Version required').regex(/^\d+\.\d+\.\d+$/, 'Format: X.Y.Z'),
-    deviceType: z.enum(['esp8266', 'esp32']).optional().default('esp8266'),
-    description: z.string().max(500).optional().default(''),
+export const UpdateDeviceSchema = z.object({
+    name: z.string().min(1).max(120).optional(),
+    type: z.string().min(1).max(80).optional(),
+    location: z.string().max(120).optional(),
+    status: z.enum(['online', 'offline', 'unknown']).optional(),
+    ip_address: z.string().max(120).nullable().optional(),
+    firmware_version: z.string().max(80).nullable().optional(),
+    cmd_topic: z.string().min(1).max(255).optional(),
+    state_topic: z.string().min(1).max(255).optional(),
+    status_topic: z.string().min(1).max(255).optional(),
+    telemetry_topic: z.string().min(1).max(255).optional(),
+    metadata_json: metadataSchema.optional(),
 });
 
-// ============ Validation Middleware Factory ============
+export const DeviceCommandSchema = z.object({
+    command: z.enum(['pulse', 'on', 'off']),
+});
+
+export const UpsertAutomationSchema = z.object({
+    id: z.string().min(1).max(100),
+    name: z.string().min(1).max(120),
+    device_id: z.string().min(1).max(100),
+    command: z.enum(['pulse', 'on', 'off']),
+    schedule: z.string().min(1).max(100),
+    enabled: z.boolean().optional().default(true),
+    description: z.string().max(255).optional().default(''),
+});
 
 export function validate(schema: z.ZodSchema) {
     return (req: Request, res: Response, next: NextFunction): void => {
-        const result = schema.safeParse(req.body);
-        if (!result.success) {
-            const errors = result.error.issues.map((e: z.ZodIssue) => `${e.path.join('.')}: ${e.message}`);
+        const parsed = schema.safeParse(req.body);
+
+        if (!parsed.success) {
             res.status(400).json({
                 success: false,
                 error: 'Validation failed',
-                details: errors,
+                details: parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
                 timestamp: new Date().toISOString(),
             });
             return;
         }
-        req.body = result.data; // Replace with validated & typed data
+
+        req.body = parsed.data;
         next();
     };
 }

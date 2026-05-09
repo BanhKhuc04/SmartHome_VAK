@@ -1,15 +1,22 @@
 import { Router } from 'express';
-import { getAllDevicesDB, getDeviceByIdDB, createDevice, updateDevice, deleteDevice, toggleRelayDB } from './devices.controller';
+import {
+    createDevice,
+    deleteDevice,
+    getAllDevices,
+    getDeviceById,
+    sendDeviceCommand,
+    updateDevice,
+} from './devices.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { validate, CreateDeviceSchema, UpdateDeviceSchema, RelayCommandSchema } from '../../middleware/validation';
+import { CreateDeviceSchema, DeviceCommandSchema, UpdateDeviceSchema, validate } from '../../middleware/validation';
 
 const router = Router();
 
-router.get('/', getAllDevicesDB);
-router.get('/:id', getDeviceByIdDB);
+router.get('/', authMiddleware, getAllDevices);
 router.post('/', authMiddleware, validate(CreateDeviceSchema), createDevice);
-router.put('/:id', authMiddleware, validate(UpdateDeviceSchema), updateDevice);
+router.get('/:id', authMiddleware, getDeviceById);
+router.patch('/:id', authMiddleware, validate(UpdateDeviceSchema), updateDevice);
 router.delete('/:id', authMiddleware, deleteDevice);
-router.post('/:id/relay', validate(RelayCommandSchema), toggleRelayDB);
+router.post('/:id/command', authMiddleware, validate(DeviceCommandSchema), sendDeviceCommand);
 
 export default router;

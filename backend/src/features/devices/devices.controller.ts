@@ -1,133 +1,390 @@
 import { Request, Response } from 'express';
+import { config } from '../../config';
 import { getDatabase } from '../../services/database.service';
 import { mqttService } from '../../services/mqtt.service';
-import { ApiResponse } from '../../types';
-import { parsePagination, buildPaginatedResponse } from '../../utils/pagination';
+import { logAuditEvent } from '../../services/audit-log.service';
+import { ModuleDevice } from '../../types';
 
-interface DeviceRow {
-    id: string; name: string; type: string; location: string;
-    status: string; last_seen: string; owner_id: number;
-    config: string; firmware_version: string; created_at: string;
-}
-interface RelayRow { id: string; device_id: string; name: string; pin: number; state: number; }
-interface SensorRow { id: string; device_id: string; name: string; type: string; unit: string; }
+type DeviceRow = {
+    device_id: string;
+    name: string;
+    type: string;
+    location: string;
+    status: 'online' | 'offline' | 'unknown';
+    ip_address: string | null;
+    firmware_version: string | null;
+    cmd_topic: string;
+    state_topic: string;
+    status_topic: string;
+    telemetry_topic: string;
+    last_seen: string | null;
+    metadata_json: string;
+    created_at: string;
+    updated_at: string;
+    last_state: string | null;
+    telemetry_payload_json: string | null;
+};
 
-function buildDeviceResponse(d: DeviceRow, relays: RelayRow[], sensors: SensorRow[]) {
+function defaultTopics(device_id: string): { cmd_topic: string; state_topic: string; status_topic: string; telemetry_topic: string } {
+    const base = `${config.mqtt.topicRoot}/${device_id}`;
     return {
-        id: d.id, name: d.name, type: d.type, location: d.location,
-        status: d.status, lastSeen: d.last_seen, firmwareVersion: d.firmware_version,
-        relays: relays.map(r => ({ id: r.id, name: r.name, pin: r.pin, state: !!r.state })),
-        sensors: sensors.map(s => ({ id: s.id, name: s.name, type: s.type, unit: s.unit, value: 0, lastUpdated: '' })),
+        cmd_topic: `${base}/cmd`,
+        state_topic: `${base}/state`,
+        status_topic: `${base}/status`,
+        telemetry_topic: `${base}/telemetry`,
     };
 }
 
-// GET /api/devices?page=1&limit=20
-export function getAllDevicesDB(req: Request, res: Response): void {
-    const db = getDatabase();
-    const { page, limit, offset } = parsePagination(req);
-
-    const total = (db.prepare('SELECT COUNT(*) as count FROM devices').get() as any).count;
-    const devices = db.prepare('SELECT * FROM devices ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as DeviceRow[];
-
-    // Batch load relays/sensors for this page only
-    const deviceIds = devices.map(d => d.id);
-    const allRelays = deviceIds.length > 0
-        ? db.prepare(`SELECT * FROM relays WHERE device_id IN (${deviceIds.map(() => '?').join(',')})`).all(...deviceIds) as RelayRow[]
-        : [];
-    const allSensors = deviceIds.length > 0
-        ? db.prepare(`SELECT * FROM sensors WHERE device_id IN (${deviceIds.map(() => '?').join(',')})`).all(...deviceIds) as SensorRow[]
-        : [];
-
-    const relaysByDevice = new Map<string, RelayRow[]>();
-    for (const r of allRelays) { const l = relaysByDevice.get(r.device_id) || []; l.push(r); relaysByDevice.set(r.device_id, l); }
-    const sensorsByDevice = new Map<string, SensorRow[]>();
-    for (const s of allSensors) { const l = sensorsByDevice.get(s.device_id) || []; l.push(s); sensorsByDevice.set(s.device_id, l); }
-
-    const result = devices.map(d => buildDeviceResponse(d, relaysByDevice.get(d.id) || [], sensorsByDevice.get(d.id) || []));
-    res.json(buildPaginatedResponse(result, total, { page, limit, offset }));
+function mapDevice(row: DeviceRow): ModuleDevice {
+    return {
+        device_id: row.device_id,
+        name: row.name,
+        type: row.type,
+        location: row.location,
+        status: row.status,
+        ip_address: row.ip_address,
+        firmware_version: row.firmware_version,
+        cmd_topic: row.cmd_topic,
+        state_topic: row.state_topic,
+        status_topic: row.status_topic,
+        telemetry_topic: row.telemetry_topic,
+        last_seen: row.last_seen,
+        metadata_json: row.metadata_json ? JSON.parse(row.metadata_json) : {},
+        last_state: row.last_state,
+        telemetry_last_payload: row.telemetry_payload_json ? JSON.parse(row.telemetry_payload_json) : null,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    };
 }
 
-// GET /api/devices/:id
-export function getDeviceByIdDB(req: Request, res: Response): void {
-    const id = req.params.id as string;
+function selectDeviceById(device_id: string): ModuleDevice | null {
     const db = getDatabase();
-    const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(id) as DeviceRow | undefined;
-    if (!device) { res.status(404).json({ success: false, error: 'Device not found', timestamp: new Date().toISOString() }); return; }
-    const relays = db.prepare('SELECT * FROM relays WHERE device_id = ?').all(id) as RelayRow[];
-    const sensors = db.prepare('SELECT * FROM sensors WHERE device_id = ?').all(id) as SensorRow[];
-    res.json({ success: true, data: buildDeviceResponse(device, relays, sensors), timestamp: new Date().toISOString() });
+    const row = db.prepare(`
+        SELECT
+            d.device_id,
+            d.name,
+            d.type,
+            d.location,
+            d.status,
+            d.ip_address,
+            d.firmware_version,
+            d.cmd_topic,
+            d.state_topic,
+            d.status_topic,
+            d.telemetry_topic,
+            d.last_seen,
+            d.metadata_json,
+            d.created_at,
+            d.updated_at,
+            ds.state_value AS last_state,
+            dt.payload_json AS telemetry_payload_json
+        FROM devices d
+        LEFT JOIN device_states ds ON ds.device_id = d.device_id
+        LEFT JOIN device_telemetry dt ON dt.device_id = d.device_id
+        WHERE d.device_id = ?
+    `).get(device_id) as DeviceRow | undefined;
+
+    return row ? mapDevice(row) : null;
 }
 
-// POST /api/devices
+export function getAllDevices(req: Request, res: Response): void {
+    const db = getDatabase();
+    const statusFilter = typeof req.query.status === 'string' ? req.query.status : null;
+    const rows = statusFilter
+        ? db.prepare(`
+            SELECT
+                d.device_id,
+                d.name,
+                d.type,
+                d.location,
+                d.status,
+                d.ip_address,
+                d.firmware_version,
+                d.cmd_topic,
+                d.state_topic,
+                d.status_topic,
+                d.telemetry_topic,
+                d.last_seen,
+                d.metadata_json,
+                d.created_at,
+                d.updated_at,
+                ds.state_value AS last_state,
+                dt.payload_json AS telemetry_payload_json
+            FROM devices d
+            LEFT JOIN device_states ds ON ds.device_id = d.device_id
+            LEFT JOIN device_telemetry dt ON dt.device_id = d.device_id
+            WHERE d.status = ?
+            ORDER BY d.name ASC
+        `).all(statusFilter) as DeviceRow[]
+        : db.prepare(`
+            SELECT
+                d.device_id,
+                d.name,
+                d.type,
+                d.location,
+                d.status,
+                d.ip_address,
+                d.firmware_version,
+                d.cmd_topic,
+                d.state_topic,
+                d.status_topic,
+                d.telemetry_topic,
+                d.last_seen,
+                d.metadata_json,
+                d.created_at,
+                d.updated_at,
+                ds.state_value AS last_state,
+                dt.payload_json AS telemetry_payload_json
+            FROM devices d
+            LEFT JOIN device_states ds ON ds.device_id = d.device_id
+            LEFT JOIN device_telemetry dt ON dt.device_id = d.device_id
+            ORDER BY d.name ASC
+        `).all() as DeviceRow[];
+
+    res.json({
+        success: true,
+        data: rows.map(mapDevice),
+        timestamp: new Date().toISOString(),
+    });
+}
+
+export function getDeviceById(req: Request, res: Response): void {
+    const device = selectDeviceById(req.params.id as string);
+
+    if (!device) {
+        res.status(404).json({
+            success: false,
+            error: 'Device not found',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+
+    res.json({
+        success: true,
+        data: device,
+        timestamp: new Date().toISOString(),
+    });
+}
+
 export function createDevice(req: Request, res: Response): void {
-    const { id, name, type, location, relays, sensors } = req.body;
-    if (!id || !name) { res.status(400).json({ success: false, error: 'id and name required', timestamp: new Date().toISOString() }); return; }
+    const input = req.body as {
+        device_id: string;
+        name: string;
+        type: string;
+        location: string;
+        ip_address: string | null;
+        firmware_version: string | null;
+        cmd_topic?: string;
+        state_topic?: string;
+        status_topic?: string;
+        telemetry_topic?: string;
+        metadata_json: Record<string, unknown>;
+    };
     const db = getDatabase();
-    const userId = req.user?.userId;
+    const topics = defaultTopics(input.device_id);
+
     try {
-        db.prepare('INSERT INTO devices (id, name, type, location, owner_id) VALUES (?, ?, ?, ?, ?)').run(id, name, type || 'esp8266', location || '', userId);
-        if (Array.isArray(relays)) {
-            const stmt = db.prepare('INSERT INTO relays (id, device_id, name, pin) VALUES (?, ?, ?, ?)');
-            relays.forEach((r: any) => stmt.run(r.id, id, r.name, r.pin || 0));
-        }
-        if (Array.isArray(sensors)) {
-            const stmt = db.prepare('INSERT INTO sensors (id, device_id, name, type, unit) VALUES (?, ?, ?, ?, ?)');
-            sensors.forEach((s: any) => stmt.run(s.id, id, s.name, s.type, s.unit || ''));
-        }
-        res.status(201).json({ success: true, data: { id, name, type: type || 'esp8266', location: location || '' }, timestamp: new Date().toISOString() });
-    } catch (err: any) {
-        res.status(409).json({ success: false, error: err.message, timestamp: new Date().toISOString() });
+        db.prepare(`
+            INSERT INTO devices (
+                device_id, name, type, location, status, ip_address, firmware_version,
+                cmd_topic, state_topic, status_topic, telemetry_topic, metadata_json
+            )
+            VALUES (?, ?, ?, ?, 'offline', ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            input.device_id,
+            input.name,
+            input.type,
+            input.location,
+            input.ip_address,
+            input.firmware_version,
+            input.cmd_topic || topics.cmd_topic,
+            input.state_topic || topics.state_topic,
+            input.status_topic || topics.status_topic,
+            input.telemetry_topic || topics.telemetry_topic,
+            JSON.stringify(input.metadata_json || {})
+        );
+
+        const device = selectDeviceById(input.device_id);
+        logAuditEvent({
+            category: 'device_update',
+            action: 'device_created',
+            actor: req.user?.username ?? 'system',
+            device_id: input.device_id,
+            message: `Device ${input.device_id} created`,
+            payload_json: device,
+        });
+
+        res.status(201).json({
+            success: true,
+            data: device,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error: unknown) {
+        res.status(409).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to create device',
+            timestamp: new Date().toISOString(),
+        });
     }
 }
 
-// PUT /api/devices/:id
 export function updateDevice(req: Request, res: Response): void {
-    const id = req.params.id as string;
-    const { name, location, type } = req.body;
+    const device_id = req.params.id as string;
     const db = getDatabase();
-    const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(id);
-    if (!device) { res.status(404).json({ success: false, error: 'Device not found', timestamp: new Date().toISOString() }); return; }
-    db.prepare('UPDATE devices SET name = COALESCE(?, name), location = COALESCE(?, location), type = COALESCE(?, type), updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(name, location, type, id);
-    res.json({ success: true, data: { id, name, location, type }, timestamp: new Date().toISOString() });
+    const existing = selectDeviceById(device_id);
+
+    if (!existing) {
+        res.status(404).json({
+            success: false,
+            error: 'Device not found',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+
+    const input = req.body as Partial<ModuleDevice>;
+    db.prepare(`
+        UPDATE devices
+        SET
+            name = COALESCE(?, name),
+            type = COALESCE(?, type),
+            location = COALESCE(?, location),
+            status = COALESCE(?, status),
+            ip_address = ?,
+            firmware_version = ?,
+            cmd_topic = COALESCE(?, cmd_topic),
+            state_topic = COALESCE(?, state_topic),
+            status_topic = COALESCE(?, status_topic),
+            telemetry_topic = COALESCE(?, telemetry_topic),
+            metadata_json = COALESCE(?, metadata_json),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE device_id = ?
+    `).run(
+        input.name ?? null,
+        input.type ?? null,
+        input.location ?? null,
+        input.status ?? null,
+        input.ip_address ?? existing.ip_address,
+        input.firmware_version ?? existing.firmware_version,
+        input.cmd_topic ?? null,
+        input.state_topic ?? null,
+        input.status_topic ?? null,
+        input.telemetry_topic ?? null,
+        input.metadata_json ? JSON.stringify(input.metadata_json) : null,
+        device_id
+    );
+
+    const updated = selectDeviceById(device_id);
+    logAuditEvent({
+        category: 'device_update',
+        action: 'device_updated',
+        actor: req.user?.username ?? 'system',
+        device_id,
+        message: `Device ${device_id} updated`,
+        payload_json: updated,
+    });
+
+    res.json({
+        success: true,
+        data: updated,
+        timestamp: new Date().toISOString(),
+    });
 }
 
-// DELETE /api/devices/:id
 export function deleteDevice(req: Request, res: Response): void {
-    const id = req.params.id as string;
+    const device_id = req.params.id as string;
     const db = getDatabase();
-    const result = db.prepare('DELETE FROM devices WHERE id = ?').run(id);
-    if (result.changes === 0) { res.status(404).json({ success: false, error: 'Device not found', timestamp: new Date().toISOString() }); return; }
-    res.json({ success: true, data: { deleted: id }, timestamp: new Date().toISOString() });
+    const existing = selectDeviceById(device_id);
+
+    if (!existing) {
+        res.status(404).json({
+            success: false,
+            error: 'Device not found',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+
+    const removeDevice = db.transaction((targetDeviceId: string) => {
+        logAuditEvent({
+            category: 'device_update',
+            action: 'device_deleted',
+            actor: req.user?.username ?? 'system',
+            device_id: targetDeviceId,
+            message: `Device ${targetDeviceId} deleted`,
+            payload_json: existing,
+        });
+
+        db.prepare('DELETE FROM automations WHERE device_id = ?').run(targetDeviceId);
+        db.prepare('DELETE FROM device_states WHERE device_id = ?').run(targetDeviceId);
+        db.prepare('DELETE FROM device_telemetry WHERE device_id = ?').run(targetDeviceId);
+        db.prepare('UPDATE audit_logs SET device_id = NULL WHERE device_id = ?').run(targetDeviceId);
+
+        return db.prepare('DELETE FROM devices WHERE device_id = ?').run(targetDeviceId);
+    });
+
+    const result = removeDevice(device_id);
+
+    if (result.changes === 0) {
+        res.status(404).json({
+            success: false,
+            error: 'Device not found',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+
+    res.json({
+        success: true,
+        data: { deleted: true, device_id },
+        timestamp: new Date().toISOString(),
+    });
 }
 
-// POST /api/devices/:id/relay
-export function toggleRelayDB(req: Request, res: Response): void {
-    const id = req.params.id as string;
-    const { relayId, state } = req.body;
-    const db = getDatabase();
-    const relay = db.prepare('SELECT * FROM relays WHERE id = ? AND device_id = ?').get(relayId, id) as RelayRow | undefined;
-    if (!relay) { res.status(404).json({ success: false, error: 'Relay not found', timestamp: new Date().toISOString() }); return; }
-    db.prepare('UPDATE relays SET state = ? WHERE id = ? AND device_id = ?').run(state ? 1 : 0, relayId, id);
-    
-    // Get device for location info
-    const device = db.prepare('SELECT location FROM devices WHERE id = ?').get(id) as { location: string };
-    mqttService.publishRelayCommand(device.location || 'default', id, relayId, state);
-    
-    res.json({ success: true, data: { id: relayId, name: relay.name, pin: relay.pin, state }, timestamp: new Date().toISOString() });
-}
+export function sendDeviceCommand(req: Request, res: Response): void {
+    const device_id = req.params.id as string;
+    const { command } = req.body as { command: 'pulse' | 'on' | 'off' };
+    const device = selectDeviceById(device_id);
 
-// DB update helpers (called from MQTT handlers)
-export function updateDeviceStatusDB(deviceId: string, status: 'online' | 'offline'): void {
-    const db = getDatabase();
-    db.prepare('UPDATE devices SET status = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?').run(status, deviceId);
-}
+    if (!device) {
+        res.status(404).json({
+            success: false,
+            error: 'Device not found',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
 
-export function updateSensorDataDB(deviceId: string, sensorId: string, value: number): void {
-    const db = getDatabase();
-    db.prepare('INSERT INTO sensor_history (device_id, sensor_id, value) VALUES (?, ?, ?)').run(deviceId, sensorId, value);
-}
+    try {
+        mqttService.publishCommand(device.cmd_topic, command);
 
-export function updateRelayStateDB(deviceId: string, relayId: string, state: boolean): void {
-    const db = getDatabase();
-    db.prepare('UPDATE relays SET state = ? WHERE id = ? AND device_id = ?').run(state ? 1 : 0, relayId, deviceId);
+        logAuditEvent({
+            category: 'command',
+            action: 'device_command_sent',
+            actor: req.user?.username ?? 'system',
+            device_id,
+            message: `Command ${command} sent to ${device_id}`,
+            payload_json: {
+                command,
+                cmd_topic: device.cmd_topic,
+            },
+        });
+
+        res.json({
+            success: true,
+            data: {
+                device_id,
+                command,
+                cmd_topic: device.cmd_topic,
+            },
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error: unknown) {
+        res.status(503).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to publish command',
+            timestamp: new Date().toISOString(),
+        });
+    }
 }
