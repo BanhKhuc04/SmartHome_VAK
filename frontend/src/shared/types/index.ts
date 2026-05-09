@@ -54,10 +54,11 @@ export interface AutomationRule {
 }
 
 export interface SystemHealth {
-    status: 'healthy';
+    status: 'healthy' | 'degraded';
     mqtt: {
         connected: boolean;
         broker_url: string;
+        topic_root: string;
         subscriptions: string[];
     };
     websocket: {
@@ -93,4 +94,18 @@ export interface WebSocketMessage<T = unknown> {
     type: WebSocketMessageType;
     payload: T;
     timestamp: string;
+}
+
+export interface DiagnosticResult {
+    timestamp: string;
+    services: {
+        api: boolean;
+        mqtt: boolean;
+        database: boolean;
+    };
+    latency: {
+        db_query_ms: number;
+    };
+    warnings: string[];
+    recommendations: string[];
 }

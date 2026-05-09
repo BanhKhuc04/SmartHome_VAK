@@ -144,6 +144,8 @@ export function login(req: Request, res: Response): void {
 export function refreshToken(req: Request, res: Response): void {
     const refreshTokenValue = req.cookies.refreshToken as string | undefined;
     if (!refreshTokenValue) {
+        res.clearCookie('accessToken');
+        res.clearCookie('refreshToken');
         res.status(401).json({
             success: false,
             error: 'Refresh token required',
@@ -177,6 +179,8 @@ export function refreshToken(req: Request, res: Response): void {
             timestamp: new Date().toISOString(),
         });
     } catch {
+        res.clearCookie('accessToken');
+        res.clearCookie('refreshToken');
         res.status(401).json({
             success: false,
             error: 'Invalid or expired refresh token',

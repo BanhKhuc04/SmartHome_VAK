@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { config } from '../../config';
-import { getDatabase } from '../../services/database.service';
+import { ensureDefaultModuleSeed, getDatabase } from '../../services/database.service';
 import { mqttService } from '../../services/mqtt.service';
 import { logAuditEvent } from '../../services/audit-log.service';
 import { ModuleDevice } from '../../types';
@@ -89,6 +89,7 @@ function selectDeviceById(device_id: string): ModuleDevice | null {
 
 export function getAllDevices(req: Request, res: Response): void {
     const db = getDatabase();
+    ensureDefaultModuleSeed(db);
     const statusFilter = typeof req.query.status === 'string' ? req.query.status : null;
     const rows = statusFilter
         ? db.prepare(`
@@ -149,6 +150,7 @@ export function getAllDevices(req: Request, res: Response): void {
 }
 
 export function getDeviceById(req: Request, res: Response): void {
+    ensureDefaultModuleSeed();
     const device = selectDeviceById(req.params.id as string);
 
     if (!device) {

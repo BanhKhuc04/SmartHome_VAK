@@ -1,5 +1,7 @@
 import React, { ReactNode, createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { useToast } from '../components/Toast';
 import { apiService } from '../services/api.service';
+import { getApiErrorMessage, normalizeApiError } from '../services/api-errors';
 
 interface User {
     id: number;
@@ -20,6 +22,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
+    const { showToast } = useToast();
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -39,14 +42,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         checkAuth();
 
-        const handleExpired = () => {
+        const handleExpired = (event: Event) => {
+            const detail = (event as CustomEvent<{ message?: string; silent?: boolean }>).detail;
             setUser(null);
-            setError('Session expired. Please log in again.');
+            setError(detail?.message || 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+            if (!detail?.silent) {
+                showToast(detail?.message || 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', 'warning');
+            }
         };
 
         window.addEventListener('auth:session-expired', handleExpired);
         return () => window.removeEventListener('auth:session-expired', handleExpired);
-    }, [checkAuth]);
+    }, [checkAuth, showToast]);
 
     const login = useCallback(async (username: string, password: string) => {
         setError(null);
@@ -57,11 +64,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 return true;
             }
             return false;
-        } catch (error: any) {
-            setError(error.response?.data?.error || error.message || 'Login failed');
+        } catch (error: unknown) {
+            const normalized = normalizeApiError(error);
+            const message = getApiErrorMessage(error);
+            setUser(null);
+            setError(message);
+            if (!normalized.isSessionExpired) {
+                showToast(message, normalized.isRateLimited ? 'warning' : 'error');
+            }
             return false;
         }
-    }, []);
+    }, [showToast]);
 
     const logout = useCallback(async () => {
         try {

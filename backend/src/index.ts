@@ -39,6 +39,13 @@ const authLimiter = rateLimit({
     max: 20,
     standardHeaders: true,
     legacyHeaders: false,
+    handler: (_req, res) => {
+        res.status(429).json({
+            success: false,
+            error: 'Too many authentication attempts. Please wait a moment and try again.',
+            timestamp: new Date().toISOString(),
+        });
+    },
 });
 
 app.use('/api/auth', authLimiter, authRoutes);

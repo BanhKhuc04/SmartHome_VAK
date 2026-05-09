@@ -103,7 +103,7 @@ export function initializeDatabase(): void {
     `);
 
     seedDefaultAdmin(database);
-    seedDefaultModule(database);
+    ensureDefaultModuleSeed(database);
 }
 
 function seedDefaultAdmin(database: Database.Database): void {
@@ -117,15 +117,13 @@ function seedDefaultAdmin(database: Database.Database): void {
     `).run('admin', 'admin@homecore.local', passwordHash, 'admin');
 }
 
-function seedDefaultModule(database: Database.Database): void {
-    const existing = database.prepare('SELECT device_id FROM devices WHERE device_id = ?').get('pc_relay_01') as { device_id: string } | undefined;
-    if (existing) return;
-
+export function ensureDefaultModuleSeed(database: Database.Database = getDatabase()): void {
     database.prepare(`
         INSERT INTO devices (
             device_id, name, type, location, status, cmd_topic, state_topic, status_topic, telemetry_topic, metadata_json
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(device_id) DO NOTHING
     `).run(
         'pc_relay_01',
         'PC Server Power Relay',

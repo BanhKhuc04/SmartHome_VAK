@@ -18,7 +18,7 @@ export interface CustomImage {
 
 export interface Settings {
     screensaverTimeout: number; // in seconds
-    screensaverBackground: 'default' | 'space' | 'nature' | 'ocean' | 'custom';
+    screensaverBackground: 'default' | 'space' | 'nature' | 'ocean' | 'custom' | 'monitor';
     customScreensaverUrl: string; // Current displayed/selected URL
     customScreensaverImages: CustomImage[];
     activeCustomImageId: string; // Legacy: Single selected ID

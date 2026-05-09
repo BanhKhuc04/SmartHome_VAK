@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSettings, CustomImage } from '../contexts/SettingsContext';
+import { apiService } from '../services/api.service';
+import { SystemHealth } from '../types';
 
 interface ScreensaverProps {
     idleTimeout?: number; // ms before screensaver activates
@@ -299,12 +301,14 @@ export const Screensaver: React.FC<ScreensaverProps> = ({ idleTimeout = 30000, c
                         )}
 
                         {type === 'default' && <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0 }} />}
+                        {type === 'monitor' && <ScreensaverMonitor />}
 
-                        {/* Clock UI */}
-                        <div style={{
-                            position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-                            textAlign: 'center', zIndex: 1,
-                        }}>
+                        {/* Clock UI (Hidden in Monitor mode) */}
+                        {type !== 'monitor' && (
+                            <div style={{
+                                position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                                textAlign: 'center', zIndex: 1,
+                            }}>
                             <div style={{
                                 fontSize: 'clamp(4rem, 12vw, 8rem)', fontWeight: 200,
                                 background: type === 'default'
@@ -333,6 +337,7 @@ export const Screensaver: React.FC<ScreensaverProps> = ({ idleTimeout = 30000, c
                                 HomeCore Nexus • Di chuột để quay lại
                             </div>
                         </div>
+                        )}
 
                         {/* Floating orbs for default background */}
                         {type === 'default' && (
@@ -390,4 +395,71 @@ const ScreensaverClock: React.FC = () => {
 const ScreensaverDate: React.FC = () => {
     const [date] = useState(new Date());
     return <>{date.toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</>;
+};
+
+const ScreensaverMonitor: React.FC = () => {
+    const [health, setHealth] = useState<SystemHealth | null>(null);
+    useEffect(() => {
+        const fetchHealth = async () => {
+            try {
+                const res = await apiService.getSystemHealth();
+                setHealth(res);
+            } catch (e) {}
+        };
+        fetchHealth();
+        const interval = setInterval(fetchHealth, 5000);
+        return () => clearInterval(interval);
+    }, []);
+
+    if (!health) return <div className="absolute inset-0 flex items-center justify-center bg-black font-mono text-green-500/50">INITIALIZING SYSTEM DIAGNOSTICS...</div>;
+
+    return (
+        <div className="absolute inset-0 flex items-center justify-center bg-black font-mono text-green-500 selection:bg-green-500/30 p-4">
+            {/* CRT scanline effect overlay */}
+            <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))', backgroundSize: '100% 2px, 3px 100%' }} />
+            
+            <div className="max-w-4xl w-full p-8 border border-green-500/30 rounded shadow-[0_0_40px_rgba(34,197,94,0.05)] relative z-10 backdrop-blur-sm bg-black/40">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-green-500/30 pb-4 mb-8">
+                    <div>
+                        <div className="text-4xl font-black tracking-widest mb-1 drop-shadow-[0_0_10px_rgba(34,197,94,0.5)]">NEXUS TERMINAL</div>
+                        <div className="text-xs tracking-widest opacity-80">SYSTEM DIAGNOSTICS & TELEMETRY SUBSYSTEM</div>
+                    </div>
+                    <div className="text-right mt-4 md:mt-0">
+                        <div className="text-3xl font-bold tracking-wider drop-shadow-[0_0_8px_rgba(34,197,94,0.4)]"><ScreensaverClock /></div>
+                        <div className="text-[10px] tracking-widest opacity-80 uppercase mt-1"><ScreensaverDate /></div>
+                    </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-10 text-sm tracking-wider">
+                    <div className="space-y-3">
+                        <div className="text-[10px] tracking-[0.2em] opacity-50 mb-4 border-b border-green-500/20 pb-1">HOST DIAGNOSTICS</div>
+                        <div className="flex justify-between"><span>HOSTNAME:</span> <span>{health.host.hostname}</span></div>
+                        <div className="flex justify-between"><span>PLATFORM:</span> <span>{health.host.platform}</span></div>
+                        <div className="flex justify-between"><span>UPTIME:</span> <span>{Math.floor(health.host.uptime_seconds / 3600)}h {Math.floor((health.host.uptime_seconds % 3600) / 60)}m</span></div>
+                        <div className="flex justify-between items-center">
+                            <span>MEMORY:</span> 
+                            <span className="flex items-center gap-2">
+                                <div className="w-24 h-1.5 bg-green-500/20 rounded overflow-hidden">
+                                    <div className="h-full bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.8)]" style={{ width: `${(1 - health.host.free_memory_bytes / health.host.total_memory_bytes) * 100}%` }} />
+                                </div>
+                                {(health.host.free_memory_bytes / 1024 / 1024).toFixed(0)} MB FREE
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        <div className="text-[10px] tracking-[0.2em] opacity-50 mb-4 border-b border-green-500/20 pb-1">NETWORK SERVICES</div>
+                        <div className="flex justify-between"><span>BACKEND API:</span> <span className={health.status === 'healthy' ? '' : 'text-red-500 animate-pulse'}>{health.status === 'healthy' ? '[ ONLINE ]' : '[ DEGRADED ]'}</span></div>
+                        <div className="flex justify-between"><span>MQTT BROKER:</span> <span className={health.mqtt.connected ? '' : 'text-red-500 animate-pulse'}>{health.mqtt.connected ? '[ CONNECTED ]' : '[ OFFLINE ]'}</span></div>
+                        <div className="flex justify-between"><span>WEBSOCKET:</span> <span>[ {health.websocket.clients} ACTIVE ]</span></div>
+                        <div className="flex justify-between"><span>SQLITE DB:</span> <span>{health.sqlite.connected ? '[ READY ]' : '[ OFFLINE ]'}</span></div>
+                    </div>
+                </div>
+                
+                <div className="mt-12 pt-4 border-t border-green-500/30 text-[10px] tracking-[0.2em] opacity-70 text-center animate-pulse">
+                    &gt; SYSTEM IS RUNNING OPTIMALLY. AWAITING OPERATOR INPUT...
+                </div>
+            </div>
+        </div>
+    );
 };

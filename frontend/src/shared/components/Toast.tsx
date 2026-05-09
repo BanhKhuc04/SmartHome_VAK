@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -25,38 +26,44 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
     }, []);
 
-    const icons: Record<ToastType, string> = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
+    const icons: Record<ToastType, ReactNode> = {
+        success: <CheckCircle2 size={16} />,
+        error: <XCircle size={16} />,
+        info: <Info size={16} />,
+        warning: <AlertTriangle size={16} />,
+    };
     const colors: Record<ToastType, string> = {
-        success: 'rgba(16,185,129,0.2)', error: 'rgba(239,68,68,0.2)',
-        info: 'rgba(59,130,246,0.2)', warning: 'rgba(245,158,11,0.2)',
+        success: 'rgba(16,185,129,0.15)', error: 'rgba(239,68,68,0.15)',
+        info: 'rgba(59,130,246,0.15)', warning: 'rgba(245,158,11,0.15)',
     };
     const borderColors: Record<ToastType, string> = {
-        success: 'rgba(16,185,129,0.4)', error: 'rgba(239,68,68,0.4)',
-        info: 'rgba(59,130,246,0.4)', warning: 'rgba(245,158,11,0.4)',
+        success: 'rgba(16,185,129,0.3)', error: 'rgba(239,68,68,0.3)',
+        info: 'rgba(59,130,246,0.3)', warning: 'rgba(245,158,11,0.3)',
     };
 
     return (
         <ToastContext.Provider value={{ showToast }}>
             {children}
-            <div style={{ position: 'fixed', top: 'var(--space-4)', right: 'var(--space-4)', zIndex: 10001, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', pointerEvents: 'none' }}>
+            <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 10001, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
                 {toasts.map(toast => (
                     <div key={toast.id} style={{
-                        padding: 'var(--space-3) var(--space-5)',
+                        padding: '10px 16px',
                         background: colors[toast.type],
                         backdropFilter: 'blur(20px)',
                         border: `1px solid ${borderColors[toast.type]}`,
-                        borderRadius: 'var(--radius-lg)',
+                        borderRadius: 'var(--radius-md)',
                         color: 'var(--text-primary)',
-                        fontSize: 'var(--font-size-sm)',
-                        fontWeight: 500,
+                        fontSize: 13,
+                        fontWeight: 600,
                         animation: 'slideInRight 0.3s ease-out',
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
                         pointerEvents: 'auto',
-                        minWidth: '250px',
-                        display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                        minWidth: 260,
+                        maxWidth: 380,
+                        display: 'flex', alignItems: 'center', gap: 8,
                     }}>
-                        <span style={{ fontSize: '1.2rem' }}>{icons[toast.type]}</span>
-                        {toast.message}
+                        <span style={{ display: 'inline-flex', color: 'var(--text-primary)', flexShrink: 0 }}>{icons[toast.type]}</span>
+                        <span>{toast.message}</span>
                     </div>
                 ))}
             </div>

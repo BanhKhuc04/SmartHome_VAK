@@ -1,12 +1,21 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <meta name="description" content="HomeCore Nexus — Modular IoT Command Center for Orange Pi homelab. Control ESP8266 modules via MQTT." />
+    <meta name="theme-color" content="#0a0e1a" />
+    <title>HomeCore Nexus — IoT Command Center</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <style>
+      /* Prevent white flash before React hydrates */
+      html, body { background: #0a0e1a; color: #e2e8f0; margin: 0; padding: 0; }
+    </style>
   </head>
-  <body>
+  <body class="theme-dark">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
