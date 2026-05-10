@@ -2,7 +2,18 @@ import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'ax
 import { ApiResponse, AuditLogEntry, AutomationRule, DeviceCommand, ModuleDevice, SystemHealth, DiagnosticResult } from '../types';
 import { normalizeApiError } from './api-errors';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const getApiBaseUrl = () => {
+    const envUrl = import.meta.env.VITE_API_URL;
+    if (envUrl && envUrl !== 'auto') {
+        return envUrl;
+    }
+    
+    const host = window.location.hostname;
+    const protocol = window.location.protocol;
+    return `${protocol}//${host}:5000/api`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 type ApiRequestConfig = InternalAxiosRequestConfig & {
     _retry?: boolean;
@@ -126,6 +137,10 @@ class ApiService {
     }
 
     private emitSessionExpired(silent: boolean): void {
+        // Only emit if the user was previously logged in
+        const wasLoggedIn = localStorage.getItem('nexus_was_logged_in') === 'true';
+        if (!wasLoggedIn) return;
+
         window.dispatchEvent(new CustomEvent('auth:session-expired', {
             detail: {
                 message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
@@ -139,6 +154,9 @@ class ApiService {
             skipAuthRefresh: true,
             skipSessionExpiredEvent: true,
         } as ApiRequestConfig);
+        if (res.data.success) {
+            localStorage.setItem('nexus_was_logged_in', 'true');
+        }
         return res.data.data;
     }
 
@@ -147,6 +165,7 @@ class ApiService {
             skipAuthRefresh: true,
             skipSessionExpiredEvent: true,
         } as ApiRequestConfig);
+        localStorage.removeItem('nexus_was_logged_in');
         return res.data.data;
     }
 

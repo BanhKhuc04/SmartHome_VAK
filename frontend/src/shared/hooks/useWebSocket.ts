@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { WebSocketMessage } from '../types';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:5000/ws';
+const getWsUrl = () => {
+    const envUrl = import.meta.env.VITE_WS_URL;
+    if (envUrl && envUrl !== 'auto') {
+        return envUrl;
+    }
+
+    const host = window.location.hostname;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${host}:5000/ws`;
+};
+
+const WS_URL = getWsUrl();
 
 interface UseWebSocketReturn {
     isConnected: boolean;

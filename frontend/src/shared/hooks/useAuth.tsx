@@ -17,6 +17,7 @@ interface AuthContextValue {
     error: string | null;
     login: (username: string, password: string) => Promise<boolean>;
     logout: () => Promise<void>;
+    clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -31,6 +32,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setIsLoading(true);
         try {
             const data = await apiService.getMe();
+            if (data) {
+                localStorage.setItem('nexus_was_logged_in', 'true');
+            }
             setUser((data as User) || null);
         } catch {
             setUser(null);
@@ -85,8 +89,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     }, []);
 
+    const clearError = useCallback(() => {
+        setError(null);
+    }, []);
+
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, error, login, logout }}>
+        <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, error, login, logout, clearError }}>
             {children}
         </AuthContext.Provider>
     );

@@ -4,9 +4,19 @@ import { LockKeyhole, Server, UserRound } from 'lucide-react';
 import { useAuth } from '../../shared/hooks/useAuth';
 
 export const LoginPage = () => {
-    const { login, error, isLoading } = useAuth();
+    const { login, error, isLoading, clearError } = useAuth();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+
+    const handleUsernameChange = (val: string) => {
+        setUsername(val);
+        if (error) clearError();
+    };
+
+    const handlePasswordChange = (val: string) => {
+        setPassword(val);
+        if (error) clearError();
+    };
 
     const handleSubmit = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -51,7 +61,7 @@ export const LoginPage = () => {
                         <span className="font-extrabold uppercase" style={{ fontSize: 10, letterSpacing: '0.18em', color: '#94a3b8' }}>Username</span>
                         <div className="mt-2 flex items-center gap-3" style={{ borderRadius: 'var(--radius-md)', background: 'var(--bg-input)', border: '1px solid var(--border-primary)', padding: '10px 14px' }}>
                             <UserRound size={16} style={{ color: '#64748b', flexShrink: 0 }} />
-                            <input value={username} onChange={(e) => setUsername(e.target.value)} className="bg-transparent w-full outline-none font-medium" style={{ fontSize: 14, color: '#f1f5f9' }} placeholder="Enter username" autoComplete="username" />
+                            <input value={username} onChange={(e) => handleUsernameChange(e.target.value)} className="bg-transparent w-full outline-none font-medium" style={{ fontSize: 14, color: '#f1f5f9' }} placeholder="Enter username" autoComplete="username" />
                         </div>
                     </label>
 
@@ -59,7 +69,7 @@ export const LoginPage = () => {
                         <span className="font-extrabold uppercase" style={{ fontSize: 10, letterSpacing: '0.18em', color: '#94a3b8' }}>Password</span>
                         <div className="mt-2 flex items-center gap-3" style={{ borderRadius: 'var(--radius-md)', background: 'var(--bg-input)', border: '1px solid var(--border-primary)', padding: '10px 14px' }}>
                             <LockKeyhole size={16} style={{ color: '#64748b', flexShrink: 0 }} />
-                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="bg-transparent w-full outline-none font-medium" style={{ fontSize: 14, color: '#f1f5f9' }} placeholder="Enter password" autoComplete="current-password" />
+                            <input type="password" value={password} onChange={(e) => handlePasswordChange(e.target.value)} className="bg-transparent w-full outline-none font-medium" style={{ fontSize: 14, color: '#f1f5f9' }} placeholder="Enter password" autoComplete="current-password" />
                         </div>
                     </label>
 

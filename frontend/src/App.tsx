@@ -54,8 +54,10 @@ function AppShell() {
     });
 
     useEffect(() => {
-        void apiService.getSystemHealth().then(setHealth).catch(() => setHealth(null));
-    }, []);
+        if (isAuthenticated) {
+            void apiService.getSystemHealth().then(setHealth).catch(() => setHealth(null));
+        }
+    }, [isAuthenticated]);
 
     const navItems = useMemo(() => [
         { id: 'dashboard' as PageId, label: 'Dashboard', icon: LayoutDashboard },

@@ -27,7 +27,17 @@ const server = createServer(app);
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
-    origin: config.cors.origin,
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, curl, etc.)
+        if (!origin) return callback(null, true);
+        
+        const allowedOrigins = config.cors.origin as unknown as string[];
+        if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
 }));
 app.use(cookieParser());
