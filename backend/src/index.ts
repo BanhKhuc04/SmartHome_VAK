@@ -19,6 +19,7 @@ import deviceRoutes from './features/devices/devices.routes';
 import logRoutes from './features/logs/logs.routes';
 import systemRoutes from './features/system/system.routes';
 import automationRoutes from './features/automation/automation.routes';
+import discoveryRoutes from './features/discovery/discovery.routes';
 
 initializeDatabase();
 
@@ -63,6 +64,7 @@ app.use('/api/devices', deviceRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/automations', automationRoutes);
+app.use('/api/discovery', discoveryRoutes);
 
 app.get('/api/health', authMiddleware, (_req, res) => {
     res.json({

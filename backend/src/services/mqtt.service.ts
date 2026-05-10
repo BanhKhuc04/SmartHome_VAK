@@ -2,6 +2,7 @@ import mqtt, { IClientOptions, MqttClient } from 'mqtt';
 import { config } from '../config';
 import { DeviceCommand, MqttInboundMessage } from '../types';
 import { telegramService } from './telegram.service';
+import { discoveryService } from './discovery.service';
 
 type MessageHandler = (message: MqttInboundMessage) => void;
 
@@ -37,6 +38,7 @@ class MqttService {
             this.connected = true;
             console.log(`[MQTT] Connected to ${config.mqtt.brokerUrl}`);
             void telegramService.notifyMqttConnected();
+            this.subscribe(config.discovery.topic);
             for (const topic of config.mqtt.subscriptions) {
                 this.subscribe(topic);
             }
@@ -60,6 +62,11 @@ class MqttService {
                 rawPayload,
                 parsedPayload: parsePayload(rawPayload),
             };
+
+            if (topic === config.discovery.topic) {
+                discoveryService.handleDiscoveryMessage(rawPayload);
+                return;
+            }
 
             for (const [pattern, handlers] of this.handlers.entries()) {
                 if (this.topicMatches(topic, pattern)) {

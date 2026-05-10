@@ -1,5 +1,5 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
-import { ApiResponse, AuditLogEntry, AutomationRule, DeviceCommand, ModuleDevice, SystemHealth, DiagnosticResult } from '../types';
+import { ApiResponse, AuditLogEntry, AutomationRule, DeviceCommand, ModuleDevice, SystemHealth, DiagnosticResult, DiscoveredModule } from '../types';
 import { normalizeApiError } from './api-errors';
 
 const getApiBaseUrl = () => {
@@ -250,6 +250,32 @@ class ApiService {
     async deleteAutomation(id: string) {
         const res = await this.client.delete<ApiResponse<{ deleted: string }>>(`/automations/${id}`);
         return res.data.data || null;
+    }
+
+    // Discovery
+    async getDiscoveredModules() {
+        const res = await this.client.get<ApiResponse<DiscoveredModule[]>>('/discovery');
+        return res.data.data || [];
+    }
+
+    async approveDiscoveredModule(deviceId: string, payload: { name: string; type: string; location: string }) {
+        const res = await this.client.post<ApiResponse<{ device_id: string }>>(`/discovery/${deviceId}/approve`, payload);
+        return res.data.data;
+    }
+
+    async ignoreDiscoveredModule(deviceId: string) {
+        const res = await this.client.post<ApiResponse<unknown>>(`/discovery/${deviceId}/ignore`);
+        return res.data.success;
+    }
+
+    async resetDiscoveredModule(deviceId: string) {
+        const res = await this.client.post<ApiResponse<unknown>>(`/discovery/${deviceId}/reset`);
+        return res.data.success;
+    }
+
+    async deleteDiscoveredModule(deviceId: string) {
+        const res = await this.client.delete<ApiResponse<unknown>>(`/discovery/${deviceId}`);
+        return res.data.success;
     }
 }
 

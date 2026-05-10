@@ -94,6 +94,25 @@ export function initializeDatabase(): void {
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS discovered_modules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            platform TEXT,
+            ip_address TEXT,
+            firmware_version TEXT,
+            capabilities_json TEXT NOT NULL DEFAULT '[]',
+            cmd_topic TEXT NOT NULL,
+            state_topic TEXT NOT NULL,
+            status_topic TEXT NOT NULL,
+            telemetry_topic TEXT NOT NULL,
+            raw_payload_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'ignored')),
+            first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
         CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
         CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);

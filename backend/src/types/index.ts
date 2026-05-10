@@ -7,7 +7,27 @@ export type WebSocketMessageType =
     | 'device_state'
     | 'device_telemetry'
     | 'audit_log'
-    | 'system_health';
+    | 'system_health'
+    | 'module_discovery';
+
+export interface DiscoveredModule {
+    id: number;
+    device_id: string;
+    name: string;
+    type: string;
+    platform: string | null;
+    ip_address: string | null;
+    firmware_version: string | null;
+    capabilities: string[];
+    cmd_topic: string;
+    state_topic: string;
+    status_topic: string;
+    telemetry_topic: string;
+    status: 'pending' | 'approved' | 'ignored';
+    first_seen: string;
+    last_seen: string;
+    raw_payload?: any;
+}
 
 export interface ApiResponse<T = unknown> {
     success: boolean;

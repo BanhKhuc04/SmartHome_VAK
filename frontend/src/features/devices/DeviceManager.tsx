@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, ChevronDown, ChevronUp, Pencil, Plus, Search, Send, Trash2, Wifi, WifiOff, X, Zap, Cpu, Thermometer, LayoutTemplate } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Pencil, Plus, Search, Send, Trash2, Wifi, WifiOff, X, Zap, Cpu, Thermometer, LayoutTemplate, RefreshCcw, Eye, Info, CheckCircle2 } from 'lucide-react';
 import { apiService } from '../../shared/services/api.service';
 import { getApiErrorMessage } from '../../shared/services/api-errors';
 import { useToast } from '../../shared/components/Toast';
 import { useWebSocket } from '../../shared/hooks/useWebSocket';
-import { DeviceCommand, ModuleDevice } from '../../shared/types';
+import { DeviceCommand, ModuleDevice, DiscoveredModule } from '../../shared/types';
+
+const ALLOWED_TYPES = ['relay', 'pc-control', 'sensor', 'button', 'display', 'light', 'fan', 'custom'];
 
 type DeviceFormState = {
     device_id: string; name: string; type: string; location: string;
@@ -110,6 +112,10 @@ export default function DeviceManager() {
     const [activeTemplate, setActiveTemplate] = useState<string>('pc-relay');
     const [deviceToDelete, setDeviceToDelete] = useState<ModuleDevice | null>(null);
     const [cooldownRemaining, setCooldownRemaining] = useState(0);
+    const [discoveredModules, setDiscoveredModules] = useState<DiscoveredModule[]>([]);
+    const [moduleToApprove, setModuleToApprove] = useState<DiscoveredModule | null>(null);
+    const [discoveryLoading, setDiscoveryLoading] = useState(false);
+    const [approvalForm, setApprovalForm] = useState({ name: '', type: '', location: 'Auto-discovered' });
 
     const loadDevices = async () => {
         try {
@@ -125,7 +131,22 @@ export default function DeviceManager() {
         } finally { setLoading(false); }
     };
 
-    useEffect(() => { void loadDevices(); }, [statusFilter]);
+    const loadDiscovery = async () => {
+        try {
+            setDiscoveryLoading(true);
+            const data = await apiService.getDiscoveredModules();
+            setDiscoveredModules(data);
+        } catch (error: any) {
+            console.error('Failed to load discovery:', error);
+        } finally {
+            setDiscoveryLoading(false);
+        }
+    };
+
+    useEffect(() => { 
+        void loadDevices(); 
+        void loadDiscovery();
+    }, [statusFilter]);
 
     // Cooldown timer
     useEffect(() => {
@@ -148,6 +169,9 @@ export default function DeviceManager() {
         if (message.type === 'device_telemetry') {
             const p = message.payload as { device_id: string; telemetry: ModuleDevice['telemetry_last_payload'] };
             setDevices((c) => c.map((d) => d.device_id === p.device_id ? { ...d, telemetry_last_payload: p.telemetry } : d));
+        }
+        if (message.type === 'module_discovery') {
+            void loadDiscovery();
         }
     });
 
@@ -235,6 +259,48 @@ export default function DeviceManager() {
         catch (error: any) { showToast(error.message || 'Command failed', 'error'); }
     };
 
+    const handleIgnore = async (deviceId: string) => {
+        try {
+            await apiService.ignoreDiscoveredModule(deviceId);
+            showToast(`Module ${deviceId} ignored`, 'info');
+            await loadDiscovery();
+        } catch (error: any) {
+            showToast(getApiErrorMessage(error), 'error');
+        }
+    };
+
+    const handleReset = async (deviceId: string) => {
+        try {
+            await apiService.resetDiscoveredModule(deviceId);
+            showToast(`Module ${deviceId} reset to pending`, 'info');
+            await loadDiscovery();
+        } catch (error: any) {
+            showToast(getApiErrorMessage(error), 'error');
+        }
+    };
+
+    const openApproveModal = (mod: DiscoveredModule) => {
+        setModuleToApprove(mod);
+        setApprovalForm({
+            name: mod.name,
+            type: mod.type,
+            location: 'Auto-discovered'
+        });
+    };
+
+    const handleApprove = async () => {
+        if (!moduleToApprove) return;
+        try {
+            await apiService.approveDiscoveredModule(moduleToApprove.device_id, approvalForm);
+            showToast(`Module ${moduleToApprove.device_id} approved`, 'success');
+            setModuleToApprove(null);
+            await loadDiscovery();
+            await loadDevices();
+        } catch (error: any) {
+            showToast(getApiErrorMessage(error), 'error');
+        }
+    };
+
     useEffect(() => {
         if (!showForm || manualTopics) {
             return;
@@ -278,6 +344,55 @@ export default function DeviceManager() {
                     <button onClick={openCreate} className="btn-premium justify-center" style={{ minWidth: 156 }}><Plus size={16} /> Add Module</button>
                 </div>
             </div>
+
+            {/* Discovery Queue */}
+            {discoveredModules.some(m => m.status === 'pending') && (
+                <div className="mb-8 animate-fade-in">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/10 text-blue-400 font-bold" style={{ fontSize: 10 }}>
+                                {discoveredModules.filter(m => m.status === 'pending').length}
+                            </div>
+                            <h3 className="font-black uppercase tracking-wider" style={{ fontSize: 14, color: 'var(--text-primary)' }}>Discovered Modules</h3>
+                        </div>
+                        <button onClick={loadDiscovery} disabled={discoveryLoading} className="btn-ghost !p-1.5" title="Refresh Discovery">
+                            <RefreshCcw size={14} className={discoveryLoading ? 'animate-spin' : ''} />
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {discoveredModules.filter(m => m.status === 'pending').map((mod) => (
+                            <div key={mod.device_id} className="nexus-card !border-blue-500/20 bg-blue-500/[0.02]" style={{ padding: '20px' }}>
+                                <div className="flex items-start justify-between mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400">
+                                            <Cpu size={20} />
+                                        </div>
+                                        <div>
+                                            <div className="font-black text-white" style={{ fontSize: 15 }}>{mod.name}</div>
+                                            <div className="font-mono text-blue-400/70" style={{ fontSize: 11 }}>{mod.device_id}</div>
+                                        </div>
+                                    </div>
+                                    <span className="status-chip !bg-blue-500/10 !text-blue-400" style={{ fontSize: 9 }}>NEW</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                    <div className="nexus-inset !bg-slate-900/40" style={{ padding: '8px 10px' }}>
+                                        <div className="font-extrabold uppercase text-[8px] tracking-widest text-slate-500 mb-1">Type</div>
+                                        <div className="font-bold text-xs text-slate-300">{mod.type}</div>
+                                    </div>
+                                    <div className="nexus-inset !bg-slate-900/40" style={{ padding: '8px 10px' }}>
+                                        <div className="font-extrabold uppercase text-[8px] tracking-widest text-slate-500 mb-1">Platform</div>
+                                        <div className="font-bold text-xs text-slate-300">{mod.platform || 'Unknown'}</div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => openApproveModal(mod)} className="btn-premium flex-1 justify-center py-2 text-xs">Approve</button>
+                                    <button onClick={() => handleIgnore(mod.device_id)} className="btn-ghost flex-1 justify-center py-2 text-xs">Ignore</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Device Grid */}
             {loading ? (
@@ -572,6 +687,80 @@ export default function DeviceManager() {
                             </div>
                         </motion.div>
                     </div>
+                    )}
+                </AnimatePresence>,
+                document.body
+            )}
+
+            {/* Approve Discovery Modal */}
+            {typeof document !== 'undefined' && createPortal(
+                <AnimatePresence>
+                    {moduleToApprove && (
+                        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0" style={{ background: 'var(--overlay-bg)', backdropFilter: 'blur(6px)' }} onClick={() => setModuleToApprove(null)} />
+                            <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }} 
+                                className="relative w-full max-w-lg bg-[var(--bg-card)] rounded-[var(--radius-lg)] border border-blue-500/30 shadow-2xl flex flex-col">
+                                
+                                <div className="p-6 border-b border-white/5 flex items-center gap-4">
+                                    <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-400">
+                                        <CheckCircle2 size={24} />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-black text-xl text-white">Approve Module</h3>
+                                        <p className="text-xs text-slate-400 mt-1">Review and register the discovered module.</p>
+                                    </div>
+                                </div>
+
+                                <div className="p-6 space-y-5">
+                                    <div className="nexus-inset p-4 bg-blue-500/[0.03] border-blue-500/10">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <Info size={14} className="text-blue-400" />
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Module Info</span>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-y-2">
+                                            <div className="text-[11px] text-slate-500">Device ID:</div>
+                                            <div className="text-[11px] font-mono text-white">{moduleToApprove.device_id}</div>
+                                            <div className="text-[11px] text-slate-500">Platform:</div>
+                                            <div className="text-[11px] text-white">{moduleToApprove.platform || 'ESP8266'}</div>
+                                            <div className="text-[11px] text-slate-500">IP Address:</div>
+                                            <div className="text-[11px] text-white">{moduleToApprove.ip_address || 'Unknown'}</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <label className="block">
+                                            <span className="font-bold text-[11px] text-slate-400 mb-1.5 block">Display Name</span>
+                                            <input value={approvalForm.name} onChange={e => setApprovalForm(c => ({ ...c, name: e.target.value }))} className="input-glass w-full" placeholder="e.g. Living Room Lamp" />
+                                        </label>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <label className="block">
+                                                <span className="font-bold text-[11px] text-slate-400 mb-1.5 block">Type</span>
+                                                <select value={approvalForm.type} onChange={e => setApprovalForm(c => ({ ...c, type: e.target.value }))} className="input-glass w-full">
+                                                    {ALLOWED_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                                </select>
+                                            </label>
+                                            <label className="block">
+                                                <span className="font-bold text-[11px] text-slate-400 mb-1.5 block">Location</span>
+                                                <input value={approvalForm.location} onChange={e => setApprovalForm(c => ({ ...c, location: e.target.value }))} className="input-glass w-full" placeholder="e.g. Zone A" />
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-2">
+                                        <div className="text-[10px] font-extrabold uppercase text-slate-500 mb-3 tracking-widest">Topic Preview</div>
+                                        <div className="nexus-inset font-mono text-[10px] p-3 text-slate-400 space-y-1">
+                                            <div>CMD: <span className="text-blue-400/80">{moduleToApprove.cmd_topic}</span></div>
+                                            <div>STATE: <span className="text-green-400/80">{moduleToApprove.state_topic}</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="p-6 border-t border-white/5 flex gap-3">
+                                    <button onClick={() => setModuleToApprove(null)} className="btn-ghost flex-1">Cancel</button>
+                                    <button onClick={handleApprove} className="btn-premium flex-[2] justify-center">Confirm Approval</button>
+                                </div>
+                            </motion.div>
+                        </div>
                     )}
                 </AnimatePresence>,
                 document.body

@@ -68,4 +68,8 @@ export const config = {
         notifyErrors: process.env.TELEGRAM_NOTIFY_ERRORS !== 'false',
         notifySystem: process.env.TELEGRAM_NOTIFY_SYSTEM !== 'false',
     },
+
+    discovery: {
+        topic: process.env.MQTT_DISCOVERY_TOPIC || 'homelab/discovery',
+    },
 } as const;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, Check, Database, ExternalLink, Network, Radio, RefreshCcw, Server, Wifi, AlertTriangle, Activity, Cpu, HardDrive, Send } from 'lucide-react';
+import { Copy, Check, Database, ExternalLink, Network, Radio, RefreshCcw, Server, Wifi, AlertTriangle, Activity, Cpu, HardDrive, Send, Eye } from 'lucide-react';
 import { apiService } from '../../shared/services/api.service';
 import { useWebSocket } from '../../shared/hooks/useWebSocket';
 import { getApiErrorMessage } from '../../shared/services/api-errors';
@@ -227,6 +227,31 @@ export default function SystemPage() {
                             </div>
                         </div>
                     )}
+                    
+                    {/* Discovery Diagnostic Card */}
+                    <div className="pt-4 border-t border-white/5">
+                        <div className="flex items-center gap-2 font-extrabold uppercase mb-3 text-[10px] tracking-widest text-slate-500">
+                            <Eye size={12} /> Module Discovery
+                        </div>
+                        <div className="nexus-inset p-4 bg-slate-900/30">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-slate-400">Discovery Topic:</span>
+                                <code className="text-[10px] text-blue-400">homelab/discovery</code>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs text-slate-400">Pending Modules:</span>
+                                <span className="text-sm font-bold text-white">
+                                    {/* Since we don't have direct pending count in health, we just show it's active */}
+                                    Active / Monitoring
+                                </span>
+                            </div>
+                            <div className="mt-3 pt-3 border-t border-white/5">
+                                <a href="/devices" className="text-[10px] font-black uppercase text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1">
+                                    Manage Discovery Queue <ExternalLink size={10} />
+                                </a>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="space-y-4">
