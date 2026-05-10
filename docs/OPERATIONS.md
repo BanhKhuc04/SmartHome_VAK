@@ -78,6 +78,26 @@ If you need to roll back to a previous database state:
 2. Overwrite the live DB: `cp ~/homecore/backups/homecore-nexus-YYYYMMDD-HHMMSS.db backend/data/homecore-nexus.db`
 3. Start the backend: `sudo systemctl start homecore-backend`
 
+### Smart Rules V1 Migration & DB Cleanup
+The update to Smart Rules Engine V1 uses a safe migration strategy. The old `automations` table is renamed to `automations_legacy` to preserve your legacy schedules.
+
+If you have verified that the new `automation_rules` and `automation_runs` tables are working correctly and you no longer need the legacy data, you can manually drop the old table to save disk space.
+
+**Manual Cleanup Steps:**
+1. SSH into the Orange Pi.
+2. Stop the backend: `sudo systemctl stop homecore-backend`
+3. Backup the DB first: `./scripts/backup-db.sh`
+4. Open SQLite shell:
+   ```bash
+   sqlite3 ~/homecore/SmartHome_VAK/backend/data/homecore-nexus.db
+   ```
+5. Drop the legacy table:
+   ```sql
+   DROP TABLE IF EXISTS automations_legacy;
+   .quit
+   ```
+6. Restart the backend: `sudo systemctl start homecore-backend`
+
 ---
 
 ## 📡 MQTT Testing

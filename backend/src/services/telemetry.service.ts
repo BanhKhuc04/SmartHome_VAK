@@ -2,6 +2,7 @@ import { config } from '../config';
 import { getDatabase } from './database.service';
 import { wsService } from './websocket.service';
 import { telegramService } from './telegram.service';
+import { automationService } from './automation.service';
 import { TelemetryPayload } from '../types';
 
 class TelemetryService {
@@ -81,6 +82,9 @@ class TelemetryService {
         } else {
             console.warn(`[Telemetry] Received data from unknown device: ${deviceId} - skipping DB storage`);
         }
+
+        // Trigger Automation Engine
+        automationService.handleTelemetryEvent(deviceId, normalized);
 
         // 5. Check thresholds
         this.checkThresholds(deviceId, normalized);

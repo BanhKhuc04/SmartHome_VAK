@@ -4,6 +4,7 @@ import { DeviceCommand, MqttInboundMessage } from '../types';
 import { telegramService } from './telegram.service';
 import { discoveryService } from './discovery.service';
 import { telemetryService } from './telemetry.service';
+import { automationService } from './automation.service';
 
 type MessageHandler = (message: MqttInboundMessage) => void;
 
@@ -44,11 +45,13 @@ class MqttService {
             for (const topic of config.mqtt.subscriptions) {
                 this.subscribe(topic);
             }
+            automationService.handleMqttEvent('mqtt_connected');
         });
 
         this.client.on('close', () => {
             if (this.connected) {
                 void telegramService.notifyMqttDisconnected();
+                automationService.handleMqttEvent('mqtt_disconnected');
             }
             this.connected = false;
         });

@@ -237,19 +237,40 @@ class ApiService {
         return res.data.data || [];
     }
 
-    async saveAutomation(payload: AutomationRule) {
-        const res = await this.client.post<ApiResponse<AutomationRule>>('/automations', payload);
+    async getAutomationById(id: string): Promise<AutomationRule | null> {
+        const res = await this.client.get<ApiResponse<AutomationRule>>(`/automations/${id}`);
         return res.data.data || null;
     }
 
-    async updateAutomation(payload: AutomationRule) {
-        const res = await this.client.patch<ApiResponse<AutomationRule>>(`/automations/${payload.id}`, payload);
+    async saveAutomation(payload: Partial<AutomationRule>) {
+        const isUpdate = !!payload.id;
+        const res = isUpdate 
+            ? await this.client.put<ApiResponse<AutomationRule>>(`/automations/${payload.id}`, payload)
+            : await this.client.post<ApiResponse<AutomationRule>>('/automations', payload);
         return res.data.data || null;
     }
 
     async deleteAutomation(id: string) {
         const res = await this.client.delete<ApiResponse<{ deleted: string }>>(`/automations/${id}`);
         return res.data.data || null;
+    }
+
+    async toggleAutomation(id: string, enabled: boolean) {
+        const action = enabled ? 'enable' : 'disable';
+        const res = await this.client.post<ApiResponse<any>>(`/automations/${id}/${action}`);
+        return res.data.data || null;
+    }
+
+    async runAutomation(id: string) {
+        const res = await this.client.post<ApiResponse<any>>(`/automations/${id}/run`);
+        return res.data.data || null;
+    }
+
+    async getAutomationRuns(ruleId?: string, limit: number = 100): Promise<any[]> {
+        const params: any = { limit };
+        if (ruleId) params.rule_id = ruleId;
+        const res = await this.client.get<ApiResponse<any[]>>('/automations/runs', { params });
+        return res.data.data || [];
     }
 
     // Discovery

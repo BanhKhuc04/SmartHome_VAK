@@ -47,13 +47,22 @@ export const DeviceCommandSchema = z.object({
 });
 
 export const UpsertAutomationSchema = z.object({
-    id: z.string().min(1).max(100),
+    id: z.string().max(100).optional(),
     name: z.string().min(1).max(120),
-    device_id: z.string().min(1).max(100),
-    command: z.enum(['pulse', 'on', 'off']),
-    schedule: z.string().min(1).max(100),
+    description: z.string().max(500).optional().default(''),
     enabled: z.boolean().optional().default(true),
-    description: z.string().max(255).optional().default(''),
+    trigger_type: z.enum(['telemetry', 'schedule', 'device_status', 'mqtt_event', 'manual']),
+    trigger_config: z.record(z.string(), z.any()).optional().default({}),
+    conditions: z.record(z.string(), z.array(z.any())).nullable().optional().default(null),
+    actions: z.array(
+        z.object({
+            type: z.enum(['telegram', 'device_command', 'log']),
+            message: z.string().optional(),
+            device_id: z.string().optional(),
+            command: z.enum(['on', 'off', 'pulse', 'status', 'discovery', 'telemetry']).optional()
+        })
+    ).min(1, 'At least one action is required'),
+    cooldown_seconds: z.number().min(0).max(86400).optional().default(300),
 });
 
 export function validate(schema: z.ZodSchema) {

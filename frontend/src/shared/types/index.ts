@@ -9,7 +9,8 @@ export type WebSocketMessageType =
     | 'audit_log'
     | 'system_health'
     | 'module_discovery'
-    | 'telemetry_update';
+    | 'telemetry_update'
+    | 'automation_run';
 
 export interface TelemetryPayload {
     temperature?: number;
@@ -91,17 +92,62 @@ export interface AuditLogEntry {
     created_at: string;
 }
 
+export type RuleTriggerType = 'telemetry' | 'schedule' | 'device_status' | 'mqtt_event' | 'manual';
+
+export interface RuleTriggerConfig {
+    device_id?: string;
+    metric?: string;
+    cron?: string;
+    status?: string;
+    event?: string;
+    [key: string]: any;
+}
+
+export type ConditionOperator = '>' | '>=' | '<' | '<=' | '==' | '!=' | 'contains' | 'exists';
+
+export interface ConditionField {
+    field: string;
+    operator: ConditionOperator;
+    value?: any;
+}
+
+export interface RuleConditionGroup {
+    all?: ConditionField[];
+    any?: ConditionField[];
+}
+
+export interface RuleAction {
+    type: 'telegram' | 'device_command' | 'log';
+    message?: string;
+    device_id?: string;
+    command?: 'on' | 'off' | 'pulse' | 'status' | 'discovery' | 'telemetry';
+}
+
 export interface AutomationRule {
     id: string;
     name: string;
-    device_id: string;
-    command: DeviceCommand;
-    schedule: string;
-    enabled: boolean;
     description: string;
-    last_run: string | null;
+    enabled: boolean;
+    trigger_type: RuleTriggerType;
+    trigger_config: RuleTriggerConfig;
+    conditions: RuleConditionGroup | null;
+    actions: RuleAction[];
+    cooldown_seconds: number;
+    last_triggered_at: string | null;
+    last_result: 'success' | 'skipped' | 'failed' | null;
     created_at: string;
     updated_at: string;
+}
+
+export interface AutomationRun {
+    id: number;
+    rule_id: string;
+    status: 'success' | 'skipped' | 'failed';
+    trigger_snapshot: any;
+    condition_result: any;
+    action_result: any;
+    message: string;
+    created_at: string;
 }
 
 export interface SystemHealth {
