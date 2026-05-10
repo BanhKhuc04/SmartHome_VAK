@@ -65,6 +65,23 @@ class TelegramService {
     async notifyMqttDisconnected() {
         await this.notifySystemAlert('MQTT Offline', 'Nexus lost connection to broker!', 'error');
     }
+
+    async notifySensorAlert(deviceId: string, metric: string, value: any, severity: 'warning' | 'critical') {
+        if (!config.telegram.notifySystem) return;
+        
+        const cacheKey = `sensor:${deviceId}:${metric}:${severity}`;
+        const now = Date.now();
+        const lastSent = this.lastSentAt.get(cacheKey) || 0;
+        
+        if (now - lastSent < this.spamThreshold) return;
+
+        const icon = severity === 'critical' ? '🚨' : '⚠️';
+        const msg = `${icon} <b>Sensor Alert</b>\nDevice: <code>${deviceId}</code>\nMetric: <code>${metric}</code>\nValue: <code>${value}</code>\nSeverity: <b>${severity.toUpperCase()}</b>`;
+        
+        if (await this.sendTelegramMessage(msg)) {
+            this.lastSentAt.set(cacheKey, now);
+        }
+    }
 }
 
 export const telegramService = new TelegramService();

@@ -2,7 +2,7 @@ import AIAgentWidget from './AIAgentWidget';
 import SmartScenes from './SmartScenes';
 import DeviceNetworkMap from './DeviceNetworkMap';
 import ResourceAnalytics from './ResourceAnalytics';
-import AccessControl from './AccessControl';
+import SensorSnapshot from './SensorSnapshot';
 import { motion } from 'framer-motion';
 
 export default function CommandCenter() {
@@ -65,12 +65,12 @@ export default function CommandCenter() {
           <ResourceAnalytics />
         </motion.div>
 
-         {/* Bottom Right - Access Control (6 columns wide) */}
+         {/* Bottom Right - Sensor Snapshot (6 columns wide) */}
          <motion.div 
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.5 }}
           className="md:col-span-6 md:row-span-1 rounded-3xl bg-slate-900/50 backdrop-blur-xl border border-white/10 p-6 shadow-2xl flex flex-col relative group hover:border-cyan-500/50 transition-all duration-500"
         >
-          <AccessControl />
+          <SensorSnapshot />
         </motion.div>
 
       </div>

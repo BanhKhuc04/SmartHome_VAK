@@ -72,4 +72,13 @@ export const config = {
     discovery: {
         topic: process.env.MQTT_DISCOVERY_TOPIC || 'homelab/discovery',
     },
+
+    telemetry: {
+        retentionCount: 1000,
+        thresholds: {
+            temperature: { warning: 35, critical: 40 },
+            humidity: { warning: 85 },
+            rssi: { weak: -80 },
+        },
+    },
 } as const;

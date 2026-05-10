@@ -64,6 +64,7 @@ export const LogsPage = () => {
                         <option value="device_update">Device Update</option>
                         <option value="mqtt_event">MQTT Event</option>
                         <option value="automation">Automation</option>
+                        <option value="telemetry">Telemetry</option>
                         <option value="system">System</option>
                     </select>
                     <button onClick={() => void loadLogs()} className="btn-premium justify-center" style={{ minWidth: 120 }}>

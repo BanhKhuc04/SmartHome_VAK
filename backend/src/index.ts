@@ -20,6 +20,7 @@ import logRoutes from './features/logs/logs.routes';
 import systemRoutes from './features/system/system.routes';
 import automationRoutes from './features/automation/automation.routes';
 import discoveryRoutes from './features/discovery/discovery.routes';
+import telemetryRoutes from './features/telemetry/telemetry.routes';
 
 initializeDatabase();
 
@@ -65,6 +66,7 @@ app.use('/api/logs', logRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/automations', automationRoutes);
 app.use('/api/discovery', discoveryRoutes);
+app.use('/api/telemetry', telemetryRoutes);
 
 app.get('/api/health', authMiddleware, (_req, res) => {
     res.json({

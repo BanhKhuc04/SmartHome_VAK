@@ -113,6 +113,33 @@ export function initializeDatabase(): void {
             last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS device_telemetry_latest (
+            device_id TEXT PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
+            payload_json TEXT NOT NULL,
+            temperature REAL,
+            humidity REAL,
+            pressure REAL,
+            rssi INTEGER,
+            battery REAL,
+            uptime INTEGER,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS device_telemetry_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+            payload_json TEXT NOT NULL,
+            temperature REAL,
+            humidity REAL,
+            pressure REAL,
+            rssi INTEGER,
+            battery REAL,
+            uptime INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_telemetry_history_device ON device_telemetry_history(device_id, created_at DESC);
+
         CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
         CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
         CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);

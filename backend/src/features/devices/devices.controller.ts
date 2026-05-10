@@ -78,10 +78,10 @@ function selectDeviceById(device_id: string): ModuleDevice | null {
             d.created_at,
             d.updated_at,
             ds.state_value AS last_state,
-            dt.payload_json AS telemetry_payload_json
+            dtl.payload_json AS telemetry_payload_json
         FROM devices d
         LEFT JOIN device_states ds ON ds.device_id = d.device_id
-        LEFT JOIN device_telemetry dt ON dt.device_id = d.device_id
+        LEFT JOIN device_telemetry_latest dtl ON dtl.device_id = d.device_id
         WHERE d.device_id = ?
     `).get(device_id) as DeviceRow | undefined;
 
@@ -111,10 +111,10 @@ export function getAllDevices(req: Request, res: Response): void {
                 d.created_at,
                 d.updated_at,
                 ds.state_value AS last_state,
-                dt.payload_json AS telemetry_payload_json
+                dtl.payload_json AS telemetry_payload_json
             FROM devices d
             LEFT JOIN device_states ds ON ds.device_id = d.device_id
-            LEFT JOIN device_telemetry dt ON dt.device_id = d.device_id
+            LEFT JOIN device_telemetry_latest dtl ON dtl.device_id = d.device_id
             WHERE d.status = ?
             ORDER BY d.name ASC
         `).all(statusFilter) as DeviceRow[]
@@ -136,10 +136,10 @@ export function getAllDevices(req: Request, res: Response): void {
                 d.created_at,
                 d.updated_at,
                 ds.state_value AS last_state,
-                dt.payload_json AS telemetry_payload_json
+                dtl.payload_json AS telemetry_payload_json
             FROM devices d
             LEFT JOIN device_states ds ON ds.device_id = d.device_id
-            LEFT JOIN device_telemetry dt ON dt.device_id = d.device_id
+            LEFT JOIN device_telemetry_latest dtl ON dtl.device_id = d.device_id
             ORDER BY d.name ASC
         `).all() as DeviceRow[];
 
@@ -322,6 +322,8 @@ export function deleteDevice(req: Request, res: Response): void {
         db.prepare('DELETE FROM automations WHERE device_id = ?').run(targetDeviceId);
         db.prepare('DELETE FROM device_states WHERE device_id = ?').run(targetDeviceId);
         db.prepare('DELETE FROM device_telemetry WHERE device_id = ?').run(targetDeviceId);
+        db.prepare('DELETE FROM device_telemetry_latest WHERE device_id = ?').run(targetDeviceId);
+        db.prepare('DELETE FROM device_telemetry_history WHERE device_id = ?').run(targetDeviceId);
         db.prepare('UPDATE audit_logs SET device_id = NULL WHERE device_id = ?').run(targetDeviceId);
 
         return db.prepare('DELETE FROM devices WHERE device_id = ?').run(targetDeviceId);

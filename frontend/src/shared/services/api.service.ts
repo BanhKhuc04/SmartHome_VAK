@@ -1,5 +1,5 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
-import { ApiResponse, AuditLogEntry, AutomationRule, DeviceCommand, ModuleDevice, SystemHealth, DiagnosticResult, DiscoveredModule } from '../types';
+import { ApiResponse, AuditLogEntry, AutomationRule, DeviceCommand, ModuleDevice, SystemHealth, DiagnosticResult, DiscoveredModule, TelemetryPayload, DeviceTelemetryLatest, SensorSummary } from '../types';
 import { normalizeApiError } from './api-errors';
 
 const getApiBaseUrl = () => {
@@ -276,6 +276,27 @@ class ApiService {
     async deleteDiscoveredModule(deviceId: string) {
         const res = await this.client.delete<ApiResponse<unknown>>(`/discovery/${deviceId}`);
         return res.data.success;
+    }
+
+    // Telemetry
+    async getAllLatestTelemetry() {
+        const res = await this.client.get<ApiResponse<DeviceTelemetryLatest[]>>('/telemetry/latest');
+        return res.data.data || [];
+    }
+
+    async getSensorSummaries() {
+        const res = await this.client.get<ApiResponse<SensorSummary[]>>('/telemetry/sensors');
+        return res.data.data || [];
+    }
+
+    async getLatestTelemetry(deviceId: string) {
+        const res = await this.client.get<ApiResponse<DeviceTelemetryLatest>>(`/telemetry/${deviceId}/latest`);
+        return res.data.data;
+    }
+
+    async getTelemetryHistory(deviceId: string, limit: number = 100) {
+        const res = await this.client.get<ApiResponse<any[]>>(`/telemetry/${deviceId}/history?limit=${limit}`);
+        return res.data.data || [];
     }
 }
 

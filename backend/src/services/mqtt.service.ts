@@ -3,6 +3,7 @@ import { config } from '../config';
 import { DeviceCommand, MqttInboundMessage } from '../types';
 import { telegramService } from './telegram.service';
 import { discoveryService } from './discovery.service';
+import { telemetryService } from './telemetry.service';
 
 type MessageHandler = (message: MqttInboundMessage) => void;
 
@@ -39,6 +40,7 @@ class MqttService {
             console.log(`[MQTT] Connected to ${config.mqtt.brokerUrl}`);
             void telegramService.notifyMqttConnected();
             this.subscribe(config.discovery.topic);
+            this.subscribe(`${config.mqtt.topicRoot}/+/telemetry`);
             for (const topic of config.mqtt.subscriptions) {
                 this.subscribe(topic);
             }
@@ -65,6 +67,14 @@ class MqttService {
 
             if (topic === config.discovery.topic) {
                 discoveryService.handleDiscoveryMessage(rawPayload);
+                return;
+            }
+
+            // Handle wildcard telemetry: homelab/device/+/telemetry
+            const telemetryMatch = topic.match(/^homelab\/device\/([^/]+)\/telemetry$/);
+            if (telemetryMatch) {
+                const deviceId = telemetryMatch[1];
+                void telemetryService.handleTelemetry(deviceId, rawPayload);
                 return;
             }
 

@@ -1,6 +1,6 @@
 export type DeviceStatus = 'online' | 'offline' | 'unknown';
 export type DeviceCommand = 'pulse' | 'on' | 'off';
-export type AuditLogCategory = 'auth' | 'command' | 'device_update' | 'mqtt_event' | 'automation' | 'system';
+export type AuditLogCategory = 'auth' | 'command' | 'device_update' | 'mqtt_event' | 'automation' | 'system' | 'telemetry';
 export type WebSocketMessageType =
     | 'connection_status'
     | 'device_status'
@@ -8,7 +8,38 @@ export type WebSocketMessageType =
     | 'device_telemetry'
     | 'audit_log'
     | 'system_health'
-    | 'module_discovery';
+    | 'module_discovery'
+    | 'telemetry_update';
+
+export interface TelemetryPayload {
+    temperature?: number;
+    humidity?: number;
+    pressure?: number;
+    rssi?: number;
+    battery?: number;
+    uptime?: number;
+    [key: string]: any;
+}
+
+export interface DeviceTelemetryLatest {
+    device_id: string;
+    payload: TelemetryPayload;
+    temperature: number | null;
+    humidity: number | null;
+    pressure: number | null;
+    rssi: number | null;
+    battery: number | null;
+    uptime: number | null;
+    updated_at: string;
+}
+
+export interface SensorSummary {
+    device_id: string;
+    name: string;
+    status: DeviceStatus;
+    telemetry: TelemetryPayload;
+    last_seen: string | null;
+}
 
 export interface DiscoveredModule {
     id: number;

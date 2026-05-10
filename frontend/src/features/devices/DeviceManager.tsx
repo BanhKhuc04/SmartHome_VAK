@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, ChevronDown, ChevronUp, Pencil, Plus, Search, Send, Trash2, Wifi, WifiOff, X, Zap, Cpu, Thermometer, LayoutTemplate, RefreshCcw, Eye, Info, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Pencil, Plus, Search, Send, Trash2, Wifi, WifiOff, X, Zap, Cpu, Thermometer, LayoutTemplate, RefreshCcw, Eye, Info, CheckCircle2, Droplets, Gauge, Battery } from 'lucide-react';
 import { apiService } from '../../shared/services/api.service';
 import { getApiErrorMessage } from '../../shared/services/api-errors';
 import { useToast } from '../../shared/components/Toast';
@@ -45,6 +45,12 @@ function hasRenderableContent(device: ModuleDevice) {
     return device.device_id.trim().length > 0 && device.name.trim().length > 0;
 }
 
+function getTelemetryValue(device: ModuleDevice, field: string): any {
+    const payload = device.telemetry_last_payload;
+    if (!payload || typeof payload === 'string') return undefined;
+    return (payload as Record<string, unknown>)[field];
+}
+
 function MetadataPreview({ metadata }: { metadata: Record<string, unknown> }) {
     const preview = Object.entries(metadata).slice(0, 2);
     if (preview.length === 0) {
@@ -58,6 +64,21 @@ function MetadataPreview({ metadata }: { metadata: Record<string, unknown> }) {
                     <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{key}:</span> {String(value)}
                 </div>
             ))}
+        </div>
+    );
+}
+
+function TelemetryMetric({ icon: Icon, label, value, unit, color }: { icon: any, label: string, value: any, unit?: string, color?: string }) {
+    if (value === undefined || value === null) return null;
+    return (
+        <div className="nexus-inset" style={{ padding: '10px 14px' }}>
+            <div className="flex items-center gap-2 mb-1">
+                <Icon size={12} style={{ color: color || 'var(--text-muted)' }} />
+                <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)' }}>{label}</div>
+            </div>
+            <div className="font-bold" style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                {value}{unit}
+            </div>
         </div>
     );
 }
@@ -169,6 +190,10 @@ export default function DeviceManager() {
         if (message.type === 'device_telemetry') {
             const p = message.payload as { device_id: string; telemetry: ModuleDevice['telemetry_last_payload'] };
             setDevices((c) => c.map((d) => d.device_id === p.device_id ? { ...d, telemetry_last_payload: p.telemetry } : d));
+        }
+        if (message.type === 'telemetry_update') {
+            const p = message.payload as { device_id: string; telemetry: { original: Record<string, unknown> }; timestamp: string };
+            setDevices((c) => c.map((d) => d.device_id === p.device_id ? { ...d, telemetry_last_payload: p.telemetry.original, status: 'online' as const, last_seen: p.timestamp } : d));
         }
         if (message.type === 'module_discovery') {
             void loadDiscovery();
@@ -448,24 +473,44 @@ export default function DeviceManager() {
                             </div>
 
                             {/* Info grid */}
-                            <div className="grid grid-cols-2 gap-3 mb-4">
-                                <div className="nexus-inset" style={{ padding: '10px 14px' }}>
-                                    <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 4 }}>Location</div>
-                                    <div className="font-bold" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{device.location || 'Not set'}</div>
+                            {device.type === 'sensor' ? (
+                                <div className="grid grid-cols-2 gap-3 mb-4">
+                                    <TelemetryMetric icon={Thermometer} label="Temp" value={getTelemetryValue(device, 'temperature')} unit="°C" color="#f87171" />
+                                    <TelemetryMetric icon={Droplets} label="Humidity" value={getTelemetryValue(device, 'humidity')} unit="%" color="#60a5fa" />
+                                    <TelemetryMetric icon={Gauge} label="Pressure" value={getTelemetryValue(device, 'pressure')} unit=" hPa" color="#fbbf24" />
+                                    <TelemetryMetric icon={Battery} label="Battery" value={getTelemetryValue(device, 'battery')} unit="%" color="#34d399" />
+                                    <TelemetryMetric icon={Wifi} label="RSSI" value={getTelemetryValue(device, 'rssi')} unit=" dBm" color="#818cf8" />
+                                    <TelemetryMetric icon={Cpu} label="Uptime" value={getTelemetryValue(device, 'uptime')} unit="s" color="#94a3b8" />
                                 </div>
-                                <div className="nexus-inset" style={{ padding: '10px 14px' }}>
-                                    <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 4 }}>Last Seen</div>
-                                    <div className="font-bold" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{formatTime(device.last_seen)}</div>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-3 mb-4">
+                                    <div className="nexus-inset" style={{ padding: '10px 14px' }}>
+                                        <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 4 }}>Location</div>
+                                        <div className="font-bold" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{device.location || 'Not set'}</div>
+                                    </div>
+                                    <div className="nexus-inset" style={{ padding: '10px 14px' }}>
+                                        <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 4 }}>Last Seen</div>
+                                        <div className="font-bold" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{formatTime(device.last_seen)}</div>
+                                    </div>
+                                    <div className="nexus-inset" style={{ padding: '10px 14px' }}>
+                                        <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 4 }}>IP Address</div>
+                                        <div className="font-bold" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{device.ip_address || 'Unknown'}</div>
+                                    </div>
+                                    <div className="nexus-inset" style={{ padding: '10px 14px' }}>
+                                        <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 4 }}>Firmware</div>
+                                        <div className="font-bold" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{device.firmware_version || 'Unknown'}</div>
+                                    </div>
                                 </div>
-                                <div className="nexus-inset" style={{ padding: '10px 14px' }}>
-                                    <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 4 }}>IP Address</div>
-                                    <div className="font-bold" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{device.ip_address || 'Unknown'}</div>
+                            )}
+
+                            {device.type === 'sensor' && (
+                                <div className="nexus-inset mb-4" style={{ padding: '10px 14px' }}>
+                                    <div className="flex items-center justify-between">
+                                        <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)' }}>Location</div>
+                                        <div className="font-bold" style={{ fontSize: 11, color: 'var(--text-primary)' }}>{device.location || 'Not set'}</div>
+                                    </div>
                                 </div>
-                                <div className="nexus-inset" style={{ padding: '10px 14px' }}>
-                                    <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 4 }}>Firmware</div>
-                                    <div className="font-bold" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{device.firmware_version || 'Unknown'}</div>
-                                </div>
-                            </div>
+                            )}
 
                             <div className="nexus-inset mb-4" style={{ padding: '12px 14px' }}>
                                 <div className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 6 }}>Metadata</div>
@@ -491,15 +536,19 @@ export default function DeviceManager() {
                                 <button onClick={() => openEdit(device)} className="btn-ghost" style={{ padding: '8px 14px', fontSize: 12 }}>
                                     <Pencil size={14} /> Edit
                                 </button>
-                                <button onClick={() => { setCommandTarget(device); setSelectedCommand('pulse'); }} disabled={cooldownRemaining > 0 || device.status === 'offline'} className={`btn-command ${cooldownRemaining > 0 ? 'command-cooldown opacity-50' : ''}`}>
-                                    <Zap size={14} /> {cooldownRemaining > 0 ? `Wait ${cooldownRemaining}s` : 'Pulse Power'}
-                                </button>
-                                <button onClick={() => { setCommandTarget(device); setSelectedCommand('on'); }} disabled={cooldownRemaining > 0 || device.status === 'offline'} className={`btn-command ${cooldownRemaining > 0 ? 'command-cooldown opacity-50' : ''}`}>
-                                    <Send size={14} /> ON
-                                </button>
-                                <button onClick={() => { setCommandTarget(device); setSelectedCommand('off'); }} disabled={cooldownRemaining > 0 || device.status === 'offline'} className={`btn-command ${cooldownRemaining > 0 ? 'command-cooldown opacity-50' : ''}`}>
-                                    <Send size={14} /> OFF
-                                </button>
+                                {device.type !== 'sensor' && (
+                                    <>
+                                        <button onClick={() => { setCommandTarget(device); setSelectedCommand('pulse'); }} disabled={cooldownRemaining > 0 || device.status === 'offline'} className={`btn-command ${cooldownRemaining > 0 ? 'command-cooldown opacity-50' : ''}`}>
+                                            <Zap size={14} /> {cooldownRemaining > 0 ? `Wait ${cooldownRemaining}s` : 'Pulse Power'}
+                                        </button>
+                                        <button onClick={() => { setCommandTarget(device); setSelectedCommand('on'); }} disabled={cooldownRemaining > 0 || device.status === 'offline'} className={`btn-command ${cooldownRemaining > 0 ? 'command-cooldown opacity-50' : ''}`}>
+                                            <Send size={14} /> ON
+                                        </button>
+                                        <button onClick={() => { setCommandTarget(device); setSelectedCommand('off'); }} disabled={cooldownRemaining > 0 || device.status === 'offline'} className={`btn-command ${cooldownRemaining > 0 ? 'command-cooldown opacity-50' : ''}`}>
+                                            <Send size={14} /> OFF
+                                        </button>
+                                    </>
+                                )}
                                 <button onClick={() => setDeviceToDelete(device)} className="btn-danger ml-auto" style={{ padding: '8px 14px', fontSize: 12 }}>
                                     <Trash2 size={14} /> Delete
                                 </button>

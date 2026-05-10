@@ -252,6 +252,27 @@ export default function SystemPage() {
                             </div>
                         </div>
                     </div>
+
+                    {/* Telemetry Pipeline Card */}
+                    <div className="pt-4 border-t border-white/5">
+                        <div className="flex items-center gap-2 font-extrabold uppercase mb-3 text-[10px] tracking-widest text-slate-500">
+                            <Activity size={12} /> Telemetry Pipeline
+                        </div>
+                        <div className="nexus-inset p-4 bg-slate-900/30">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-slate-400">Wildcard Sub:</span>
+                                <code className="text-[10px] text-purple-400">homelab/device/+/telemetry</code>
+                            </div>
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-slate-400">DB Retention:</span>
+                                <span className="text-sm font-bold text-white">1,000 pts / device</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs text-slate-400">Status:</span>
+                                <span className="text-sm font-bold text-emerald-400">ACTIVE</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="space-y-4">
