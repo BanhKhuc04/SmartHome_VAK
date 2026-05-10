@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AutomationRule, RuleAction, RuleConditionGroup, RuleTriggerConfig, RuleTriggerType, ModuleDevice } from '../../../shared/types';
 import { X, Plus, Trash2, Save, Play, AlertCircle } from 'lucide-react';
 
@@ -108,7 +109,7 @@ export function RuleEditorModal({ rule: initialRule, devices, onSave, onClose }:
         }
     };
 
-    return (
+    const modalContent = (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <div className="nexus-card w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl relative z-[101]">
                 {/* Header */}
@@ -256,4 +257,6 @@ export function RuleEditorModal({ rule: initialRule, devices, onSave, onClose }:
             </div>
         </div>
     );
+
+    return createPortal(modalContent, document.body);
 }
