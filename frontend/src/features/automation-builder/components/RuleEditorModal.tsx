@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AutomationRule, RuleAction, RuleConditionGroup, RuleTriggerConfig, RuleTriggerType, ModuleDevice } from '../../../shared/types';
-import { X, Plus, Trash2, Save, Play } from 'lucide-react';
+import { X, Plus, Trash2, Save, Play, AlertCircle } from 'lucide-react';
 
 interface Props {
     rule: Partial<AutomationRule>;
@@ -15,18 +15,50 @@ export function RuleEditorModal({ rule: initialRule, devices, onSave, onClose }:
         description: '',
         enabled: true,
         trigger_type: 'manual',
-        trigger_config: {},
-        conditions: null,
         actions: [{ type: 'log', message: 'Rule triggered' }],
         cooldown_seconds: 300,
         ...initialRule
     });
 
+    const [triggerConfigStr, setTriggerConfigStr] = useState(
+        JSON.stringify(initialRule.trigger_config || (initialRule.trigger_type === 'manual' ? {} : { device_id: '*' }), null, 2)
+    );
+    const [conditionsStr, setConditionsStr] = useState(
+        initialRule.conditions ? JSON.stringify(initialRule.conditions, null, 2) : ''
+    );
+    const [jsonError, setJsonError] = useState<string | null>(null);
+
     const [isSaving, setIsSaving] = useState(false);
 
     const handleSave = async () => {
+        setJsonError(null);
+        let parsedTrigger = {};
+        let parsedConditions = null;
+
+        try {
+            if (rule.trigger_type !== 'manual') {
+                parsedTrigger = JSON.parse(triggerConfigStr);
+            }
+        } catch (err: any) {
+            setJsonError(`Invalid JSON in Trigger Configuration: ${err.message}`);
+            return;
+        }
+
+        try {
+            if (conditionsStr.trim()) {
+                parsedConditions = JSON.parse(conditionsStr);
+            }
+        } catch (err: any) {
+            setJsonError(`Invalid JSON in Conditions: ${err.message}`);
+            return;
+        }
+
         setIsSaving(true);
-        await onSave(rule);
+        await onSave({
+            ...rule,
+            trigger_config: parsedTrigger,
+            conditions: parsedConditions
+        });
         setIsSaving(false);
     };
 
@@ -58,27 +90,27 @@ export function RuleEditorModal({ rule: initialRule, devices, onSave, onClose }:
                 ...rule,
                 name: 'Temperature Warning',
                 trigger_type: 'telemetry',
-                trigger_config: { device_id: '*', metric: 'temperature' },
-                conditions: { all: [{ field: 'temperature', operator: '>=', value: 35 }] },
                 actions: [{ type: 'telegram', message: '⚠️ High Temp: {{temperature}}°C on {{device_id}}' }],
                 cooldown_seconds: 300
             });
+            setTriggerConfigStr(JSON.stringify({ device_id: '*', metric: 'temperature' }, null, 2));
+            setConditionsStr(JSON.stringify({ all: [{ field: 'temperature', operator: '>=', value: 35 }] }, null, 2));
         } else if (type === 'schedule') {
             setRule({
                 ...rule,
                 name: 'Daily Pulse',
                 trigger_type: 'schedule',
-                trigger_config: { cron: '0 8 * * *' },
-                conditions: null,
                 actions: [{ type: 'device_command', device_id: devices[0]?.device_id || '', command: 'pulse' }],
                 cooldown_seconds: 0
             });
+            setTriggerConfigStr(JSON.stringify({ cron: '0 8 * * *' }, null, 2));
+            setConditionsStr('');
         }
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className="nexus-card w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="nexus-card w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl relative z-[101]">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-white/5">
                     <h3 className="font-black text-lg text-white">{rule.id ? 'Edit Smart Rule' : 'Create Smart Rule'}</h3>
@@ -86,8 +118,15 @@ export function RuleEditorModal({ rule: initialRule, devices, onSave, onClose }:
                 </div>
 
                 {/* Body */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
                     
+                    {jsonError && (
+                        <div className="nexus-inset border border-red-500/30 p-3 flex items-center gap-3 mb-4">
+                            <AlertCircle size={18} className="text-red-400" />
+                            <span className="text-sm text-red-200">{jsonError}</span>
+                        </div>
+                    )}
+
                     {!rule.id && (
                         <div className="flex gap-2 mb-4">
                             <button onClick={() => applyTemplate('temp_warn')} className="btn-glass text-xs py-1 px-3">Use Temp Warning Template</button>
@@ -118,33 +157,50 @@ export function RuleEditorModal({ rule: initialRule, devices, onSave, onClose }:
                             </label>
                         </div>
 
-                        {/* Trigger Config JSON - simplified for V1 to raw JSON editor */}
+                        {/* Trigger Config JSON */}
                         {rule.trigger_type !== 'manual' && (
-                            <label className="block">
-                                <span className="text-xs font-bold text-[var(--text-muted)] uppercase mb-1 block">Trigger Configuration (JSON)</span>
+                            <div>
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-xs font-bold text-[var(--text-muted)] uppercase">Trigger Configuration (JSON)</span>
+                                    <button onClick={() => {
+                                        try { setTriggerConfigStr(JSON.stringify(JSON.parse(triggerConfigStr), null, 2)); setJsonError(null); } 
+                                        catch (err: any) { setJsonError('Cannot format invalid JSON'); }
+                                    }} className="text-[10px] text-blue-400 hover:underline">Format JSON</button>
+                                </div>
                                 <textarea 
-                                    value={JSON.stringify(rule.trigger_config, null, 2)} 
+                                    value={triggerConfigStr} 
                                     onChange={e => {
-                                        try { setRule({...rule, trigger_config: JSON.parse(e.target.value)}); } catch {}
+                                        setTriggerConfigStr(e.target.value);
+                                        setJsonError(null);
                                     }}
                                     className="input-glass w-full font-mono text-xs" rows={4}
                                 />
-                            </label>
+                            </div>
                         )}
 
-                        {/* Conditions JSON - simplified for V1 to raw JSON editor */}
-                        <label className="block">
-                            <span className="text-xs font-bold text-[var(--text-muted)] uppercase mb-1 block">Conditions (JSON - Optional)</span>
+                        {/* Conditions JSON */}
+                        <div>
+                            <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-bold text-[var(--text-muted)] uppercase">Conditions (JSON - Optional)</span>
+                                <div className="flex items-center gap-3">
+                                    <button onClick={() => setConditionsStr('{\n  "all": []\n}')} className="text-[10px] text-blue-400 hover:underline">Empty {"{all:[]}"}</button>
+                                    <button onClick={() => setConditionsStr('')} className="text-[10px] text-slate-400 hover:underline">Clear</button>
+                                    <button onClick={() => {
+                                        try { setConditionsStr(JSON.stringify(JSON.parse(conditionsStr), null, 2)); setJsonError(null); } 
+                                        catch (err: any) { setJsonError('Cannot format invalid JSON'); }
+                                    }} className="text-[10px] text-blue-400 hover:underline">Format JSON</button>
+                                </div>
+                            </div>
                             <textarea 
-                                value={rule.conditions ? JSON.stringify(rule.conditions, null, 2) : ''} 
+                                value={conditionsStr} 
                                 onChange={e => {
-                                    if (!e.target.value) setRule({...rule, conditions: null});
-                                    try { setRule({...rule, conditions: JSON.parse(e.target.value)}); } catch {}
+                                    setConditionsStr(e.target.value);
+                                    setJsonError(null);
                                 }}
                                 className="input-glass w-full font-mono text-xs" rows={4}
                                 placeholder='{"all": [{"field": "temperature", "operator": ">=", "value": 35}]}'
                             />
-                        </label>
+                        </div>
 
                         {/* Actions Builder */}
                         <div>
