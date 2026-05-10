@@ -227,6 +227,11 @@ class ApiService {
         return res.data.data || null;
     }
 
+    async testTelegram() {
+        const res = await this.client.post<ApiResponse<{ message: string }>>('/system/test-telegram');
+        return res.data.data || null;
+    }
+
     async getAutomations(): Promise<AutomationRule[]> {
         const res = await this.client.get<ApiResponse<AutomationRule[]>>('/automations');
         return res.data.data || [];

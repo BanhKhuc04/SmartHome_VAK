@@ -59,4 +59,13 @@ export const config = {
     db: {
         path: process.env.DB_PATH || path.resolve(process.cwd(), 'data/homecore-nexus.db'),
     },
+    
+    telegram: {
+        enabled: process.env.TELEGRAM_ENABLED === 'true',
+        botToken: process.env.TELEGRAM_BOT_TOKEN,
+        chatId: process.env.TELEGRAM_CHAT_ID,
+        notifyCommands: process.env.TELEGRAM_NOTIFY_COMMANDS !== 'false',
+        notifyErrors: process.env.TELEGRAM_NOTIFY_ERRORS !== 'false',
+        notifySystem: process.env.TELEGRAM_NOTIFY_SYSTEM !== 'false',
+    },
 } as const;

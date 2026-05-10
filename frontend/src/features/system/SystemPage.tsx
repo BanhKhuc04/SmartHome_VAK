@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, Check, Database, ExternalLink, Network, Radio, RefreshCcw, Server, Wifi, AlertTriangle, Activity, Cpu, HardDrive } from 'lucide-react';
+import { Copy, Check, Database, ExternalLink, Network, Radio, RefreshCcw, Server, Wifi, AlertTriangle, Activity, Cpu, HardDrive, Send } from 'lucide-react';
 import { apiService } from '../../shared/services/api.service';
 import { useWebSocket } from '../../shared/hooks/useWebSocket';
 import { getApiErrorMessage } from '../../shared/services/api-errors';
@@ -34,6 +34,20 @@ export default function SystemPage() {
     const [runningDiagnostics, setRunningDiagnostics] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [diagnosticResult, setDiagnosticResult] = useState<DiagnosticResult | null>(null);
+
+    const handleTestTelegram = async () => {
+        try {
+            setLoading(true);
+            const res = await apiService.testTelegram();
+            if (res) {
+                alert('Test notification sent successfully!');
+            }
+        } catch (error) {
+            alert('Failed to send test notification: ' + getApiErrorMessage(error));
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleRunDiagnostics = async () => {
         try {
@@ -226,6 +240,48 @@ export default function SystemPage() {
                         <a href={health.pihole_url} target="_blank" rel="noreferrer" className="btn-ghost justify-center w-full">
                             Open Pi-hole <ExternalLink size={13} />
                         </a>
+                    </div>
+                    
+                    {/* Telegram Notifications */}
+                    <div className="nexus-card" style={{ padding: '20px 24px' }}>
+                        <div className="flex items-center gap-2 mb-3">
+                            <Send size={18} style={{ color: health.telegram.configured ? '#0088cc' : 'var(--text-muted)' }} />
+                            <span className="font-extrabold uppercase" style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--text-muted)' }}>Telegram Notifications</span>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Status:</span>
+                                <span className={`status-chip !py-0.5 !px-2 ${health.telegram.enabled ? '!bg-green-500/10 !text-green-400' : '!bg-red-500/10 !text-red-400'}`} style={{ fontSize: 10 }}>
+                                    {health.telegram.enabled ? 'Enabled' : 'Disabled'}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Config:</span>
+                                <span style={{ fontSize: 12, color: health.telegram.configured ? 'var(--text-primary)' : 'var(--nexus-warning)', fontWeight: 600 }}>
+                                    {health.telegram.configured ? 'Configured' : 'Missing Env'}
+                                </span>
+                            </div>
+                            {health.telegram.configured && (
+                                <div className="space-y-2 mt-2 pt-2 border-t border-white/5">
+                                    <div className="flex items-center justify-between">
+                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Bot:</span>
+                                        <code style={{ fontSize: 10, color: 'var(--text-secondary)' }}>{health.telegram.bot_token_prefix}</code>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Chat:</span>
+                                        <code style={{ fontSize: 10, color: 'var(--text-secondary)' }}>{health.telegram.chat_id_masked}</code>
+                                    </div>
+                                </div>
+                            )}
+                            <button 
+                                onClick={handleTestTelegram} 
+                                disabled={loading || !health.telegram.configured} 
+                                className="btn-ghost justify-center w-full mt-2"
+                                style={{ border: '1px solid var(--border-primary)', opacity: health.telegram.configured ? 1 : 0.5 }}
+                            >
+                                <Send size={13} /> {loading ? 'Sending...' : 'Send Test Notification'}
+                            </button>
+                        </div>
                     </div>
 
                     {/* Copyable values */}

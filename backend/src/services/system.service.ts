@@ -36,6 +36,12 @@ export function getSystemHealth(): SystemHealth {
             load_average: os.loadavg(),
         },
         pihole_url: config.app.piholeUrl,
+        telegram: {
+            enabled: config.telegram.enabled,
+            configured: !!config.telegram.botToken && !!config.telegram.chatId,
+            bot_token_prefix: config.telegram.botToken ? `${config.telegram.botToken.substring(0, 10)}...` : null,
+            chat_id_masked: config.telegram.chatId ? `***${config.telegram.chatId.slice(-4)}` : null,
+        },
         timestamp: new Date().toISOString(),
     };
 }

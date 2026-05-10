@@ -79,6 +79,12 @@ export interface SystemHealth {
         load_average: number[];
     };
     pihole_url: string;
+    telegram: {
+        enabled: boolean;
+        configured: boolean;
+        bot_token_prefix: string | null;
+        chat_id_masked: string | null;
+    };
     timestamp: string;
 }
 

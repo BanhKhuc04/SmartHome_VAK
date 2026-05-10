@@ -3,6 +3,7 @@ import { config } from '../../config';
 import { ensureDefaultModuleSeed, getDatabase } from '../../services/database.service';
 import { mqttService } from '../../services/mqtt.service';
 import { logAuditEvent } from '../../services/audit-log.service';
+import { telegramService } from '../../services/telegram.service';
 import { ModuleDevice } from '../../types';
 
 type DeviceRow = {
@@ -373,6 +374,8 @@ export function sendDeviceCommand(req: Request, res: Response): void {
             },
         });
 
+        void telegramService.notifyCommandSuccess(device.name, command, device.cmd_topic);
+
         res.json({
             success: true,
             data: {
@@ -383,9 +386,12 @@ export function sendDeviceCommand(req: Request, res: Response): void {
             timestamp: new Date().toISOString(),
         });
     } catch (error: unknown) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to publish command';
+        void telegramService.notifyCommandFailure(device.name, command, errorMsg);
+        
         res.status(503).json({
             success: false,
-            error: error instanceof Error ? error.message : 'Failed to publish command',
+            error: errorMsg,
             timestamp: new Date().toISOString(),
         });
     }
