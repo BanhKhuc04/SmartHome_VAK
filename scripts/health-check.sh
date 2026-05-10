@@ -61,7 +61,7 @@ echo ""
 echo "--- MQTT Connectivity ---"
 if command -v mosquitto_pub >/dev/null 2>&1; then
     # We do a fast publish. If mosquitto_pub returns 0, the broker accepted the connection.
-    if mosquitto_pub -h 127.0.0.1 -u mqtt_admin -P '120605' -t 'homelab/test/health' -m 'ping' -V mqttv311 -W 2 >/dev/null 2>&1; then
+    if timeout 3 mosquitto_pub -h 127.0.0.1 -u mqtt_admin -P '120605' -t 'homelab/test/health' -m 'ping' >/dev/null 2>&1; then
         echo "✅ [MQTT]    Local broker accepted publish"
     else
         echo "❌ [MQTT]    Local broker rejected publish (Auth/Network issue)"
