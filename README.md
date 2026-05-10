@@ -4,6 +4,10 @@
 
 Moving away from the traditional multi-room smart home paradigm, Nexus adopts a **Premium Cyber-Command Center** approach—focusing on raw system telemetry, strict command execution, and real-time observability in a single, immersive dark-themed dashboard.
 
+> 📚 **Important Documentation:**
+> - [Operations Guide (OPERATIONS.md)](./docs/OPERATIONS.md): Comprehensive DevOps guide for deploying, managing, and troubleshooting the system.
+> - [ESP8266 Firmware Template](./firmware/esp8266-homecore-template/README.md): Boilerplate C++ firmware for new relay and sensor modules.
+
 ---
 
 ## 🌟 Key Features
@@ -59,6 +63,8 @@ The system enforces a strict topic and payload contract for all registered modul
 
 ### 1. System Preparation
 Ensure Node.js LTS, Mosquitto, and Pi-hole are installed and running natively on the Pi.
+
+*For automated deployment and operational workflows, refer to the [Operations Guide](./docs/OPERATIONS.md).*
 
 ### 2. Clone & Build
 ```bash
